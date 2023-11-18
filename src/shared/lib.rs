@@ -57,7 +57,7 @@ pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
     Ok(data)
 }
 
-pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
+pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
     let mut remaining = buf.len();
     let mut write_buf = buf;
 
@@ -74,13 +74,13 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
         }
 
         let n = n as usize;
-        assert!(n < remaining);
+        assert!(n <= remaining);
 
         remaining -= n as usize;
         write_buf = &mut write_buf[n as usize..];
     }
 
-    Ok(write_buf)
+    Ok(())
 }
 
 pub enum WriteError {
@@ -115,7 +115,7 @@ pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteError> {
         }
 
         let n = n as usize;
-        assert!(n < remaining);
+        assert!(n <= remaining);
 
         remaining -= n as usize;
         buf = &buf[n as usize..];
@@ -123,3 +123,7 @@ pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteError> {
 
     Ok(())
 }
+
+pub const HEADER_LEN: usize = 4;
+pub const MAX_MSG_LEN: usize = 4096;
+pub const BUF_LEN: usize = HEADER_LEN + MAX_MSG_LEN;

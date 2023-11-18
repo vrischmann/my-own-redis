@@ -1,4 +1,70 @@
+use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
 use std::mem;
+
+enum QueryError {
+    ReadError(shared::ReadError),
+    WriteError(shared::WriteError),
+    MessageTooLong(usize),
+}
+
+impl From<shared::ReadError> for QueryError {
+    fn from(err: shared::ReadError) -> QueryError {
+        QueryError::ReadError(err)
+    }
+}
+
+impl From<shared::WriteError> for QueryError {
+    fn from(err: shared::WriteError) -> QueryError {
+        QueryError::WriteError(err)
+    }
+}
+
+impl From<QueryError> for String {
+    fn from(err: QueryError) -> String {
+        match err {
+            QueryError::ReadError(err) => err.into(),
+            QueryError::WriteError(err) => err.into(),
+            QueryError::MessageTooLong(n) => format!("message too long ({} bytes)", n),
+        }
+    }
+}
+
+fn query(fd: i32, text: &str) -> Result<(), QueryError> {
+    // Write
+
+    let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+
+    write_buf[0..HEADER_LEN].copy_from_slice(&(text.len() as u32).to_be_bytes());
+    write_buf[HEADER_LEN..HEADER_LEN + text.len()].copy_from_slice(text.as_bytes());
+
+    shared::write_full(fd, &write_buf)?;
+
+    // Read
+
+    let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+
+    shared::read_full(fd, &mut read_buf[0..HEADER_LEN])?;
+    let message_len = {
+        let header_data = &read_buf[0..HEADER_LEN];
+
+        let len = i32::from_be_bytes(header_data.try_into().unwrap());
+
+        len as usize
+    };
+
+    if message_len > MAX_MSG_LEN {
+        return Err(QueryError::MessageTooLong(message_len));
+    }
+
+    // Read request body
+
+    shared::read_full(fd, &mut read_buf[HEADER_LEN..])?;
+    let body = &read_buf[HEADER_LEN..];
+
+    println!("server says \"{}\"", String::from_utf8_lossy(body));
+
+    Ok(())
+}
 
 fn main() -> Result<(), String> {
     // Create socket
@@ -27,16 +93,11 @@ fn main() -> Result<(), String> {
 
     println!("connected to 127.0.0.1:1234");
 
-    // Write
+    // Run multiple queries
 
-    shared::write(fd, "hello".as_bytes())?;
-
-    // Read
-
-    let mut read_buf: [u8; 64] = [0; 64];
-    let data = shared::read(fd, &mut read_buf)?;
-
-    println!("server says \"{}\"", String::from_utf8_lossy(data));
+    query(fd, "hello1")?;
+    query(fd, "hello2")?;
+    query(fd, "hello3")?;
 
     unsafe {
         libc::close(fd);

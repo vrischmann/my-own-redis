@@ -1,46 +1,70 @@
 use libc::setsockopt;
-use libc::SOL_SOCKET;
-use libc::SOMAXCONN;
-use libc::SO_REUSEADDR;
+use libc::{SOL_SOCKET, SOMAXCONN, SO_REUSEADDR};
+use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
 use std::mem;
 
-enum DoSomethingError {
+enum ProcessOneRequestError {
     ReadError(shared::ReadError),
     WriteError(shared::WriteError),
+    MessageTooLong(usize),
 }
 
-impl From<DoSomethingError> for String {
-    fn from(err: DoSomethingError) -> String {
+impl From<ProcessOneRequestError> for String {
+    fn from(err: ProcessOneRequestError) -> String {
         match err {
-            DoSomethingError::ReadError(err) => err.into(),
-            DoSomethingError::WriteError(err) => err.into(),
+            ProcessOneRequestError::ReadError(err) => err.into(),
+            ProcessOneRequestError::WriteError(err) => err.into(),
+            ProcessOneRequestError::MessageTooLong(n) => format!("message too long ({} bytes)", n),
         }
     }
 }
 
-impl From<shared::ReadError> for DoSomethingError {
-    fn from(err: shared::ReadError) -> DoSomethingError {
-        DoSomethingError::ReadError(err)
+impl From<shared::ReadError> for ProcessOneRequestError {
+    fn from(err: shared::ReadError) -> ProcessOneRequestError {
+        ProcessOneRequestError::ReadError(err)
     }
 }
 
-impl From<shared::WriteError> for DoSomethingError {
-    fn from(err: shared::WriteError) -> DoSomethingError {
-        DoSomethingError::WriteError(err)
+impl From<shared::WriteError> for ProcessOneRequestError {
+    fn from(err: shared::WriteError) -> ProcessOneRequestError {
+        ProcessOneRequestError::WriteError(err)
     }
 }
 
-fn do_something(fd: i32) -> Result<(), DoSomethingError> {
-    // Read
+fn process_one_request(fd: i32) -> Result<(), ProcessOneRequestError> {
+    let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
 
-    let mut read_buf: [u8; 64] = [0; 64];
-    let data = shared::read(fd, &mut read_buf)?;
+    // Read and parse request header
 
-    println!("client says \"{}\"", String::from_utf8_lossy(data));
+    shared::read_full(fd, &mut read_buf[0..HEADER_LEN])?;
+    let message_len = {
+        let header_data = &read_buf[0..HEADER_LEN];
+        let len = i32::from_be_bytes(header_data.try_into().unwrap());
 
-    // Write
+        len as usize
+    };
 
-    shared::write(fd, "world".as_bytes())?;
+    if message_len > MAX_MSG_LEN {
+        return Err(ProcessOneRequestError::MessageTooLong(message_len));
+    }
+
+    // Read request body
+
+    shared::read_full(fd, &mut read_buf[HEADER_LEN..])?;
+    let body = &read_buf[HEADER_LEN..];
+
+    println!("client says \"{}\"", String::from_utf8_lossy(body));
+
+    // Reply
+
+    let reply = "world";
+
+    let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+
+    write_buf[0..HEADER_LEN].copy_from_slice(&(reply.len() as u32).to_be_bytes());
+    write_buf[HEADER_LEN..HEADER_LEN + reply.len()].copy_from_slice(reply.as_bytes());
+
+    shared::write_full(fd, &write_buf)?;
 
     Ok(())
 }
@@ -111,7 +135,17 @@ fn main() -> Result<(), String> {
             client_addr.sin_addr.s_addr, client_addr.sin_port, conn_fd
         );
 
-        do_something(conn_fd)?;
+        // serve this connection indefinitely
+
+        loop {
+            if let Err(err) = process_one_request(conn_fd) {
+                println!(
+                    "failed to process request, err: {}",
+                    <ProcessOneRequestError as Into<String>>::into(err)
+                );
+                break;
+            }
+        }
 
         unsafe { libc::close(conn_fd) };
     }
