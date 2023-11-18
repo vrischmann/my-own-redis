@@ -57,6 +57,32 @@ pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
     Ok(data)
 }
 
+pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
+    let mut remaining = buf.len();
+    let mut write_buf = buf;
+
+    while remaining > 0 {
+        let n = unsafe {
+            libc::read(
+                fd,
+                write_buf as *mut _ as *mut libc::c_void,
+                remaining as usize,
+            )
+        };
+        if n < 0 {
+            return Err(ReadError::Unknown(fd));
+        }
+
+        let n = n as usize;
+        assert!(n < remaining);
+
+        remaining -= n as usize;
+        write_buf = &mut write_buf[n as usize..];
+    }
+
+    Ok(write_buf)
+}
+
 pub enum WriteError {
     Unknown(i32),
 }
@@ -76,4 +102,24 @@ pub fn write(fd: i32, buf: &[u8]) -> Result<isize, WriteError> {
     }
 
     Ok(n)
+}
+
+pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteError> {
+    let mut remaining = buf.len();
+    let mut buf = buf;
+
+    while remaining > 0 {
+        let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
+        if n < 0 {
+            return Err(WriteError::Unknown(n as i32));
+        }
+
+        let n = n as usize;
+        assert!(n < remaining);
+
+        remaining -= n as usize;
+        buf = &buf[n as usize..];
+    }
+
+    Ok(())
 }
