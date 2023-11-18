@@ -37,14 +37,7 @@ fn main() -> Result<(), String> {
 
     // Write
 
-    let n = unsafe {
-        let data = "hello";
-        libc::write(fd, data as *const _ as *const libc::c_void, data.len())
-    };
-    if n < 0 {
-        println!("unable to write to fd");
-        std::process::exit(1);
-    }
+    shared::write(fd, "hello".as_bytes())?;
 
     // Read
 

@@ -43,3 +43,24 @@ pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
 
     Ok(data)
 }
+
+pub enum WriteError {
+    Unknown(i32),
+}
+
+impl From<WriteError> for String {
+    fn from(err: WriteError) -> String {
+        match err {
+            WriteError::Unknown(n) => format!("unknown (code={})", n),
+        }
+    }
+}
+
+pub fn write(fd: i32, buf: &[u8]) -> Result<isize, WriteError> {
+    let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
+    if n < 0 {
+        return Err(WriteError::Unknown(n as i32));
+    }
+
+    Ok(n)
+}

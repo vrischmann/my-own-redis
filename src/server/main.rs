@@ -7,12 +7,14 @@ use std::mem;
 
 enum DoSomethingError {
     ReadError(shared::ReadError),
+    WriteError(shared::WriteError),
 }
 
 impl From<DoSomethingError> for String {
     fn from(err: DoSomethingError) -> String {
         match err {
             DoSomethingError::ReadError(err) => err.into(),
+            DoSomethingError::WriteError(err) => err.into(),
         }
     }
 }
@@ -20,6 +22,12 @@ impl From<DoSomethingError> for String {
 impl From<shared::ReadError> for DoSomethingError {
     fn from(err: shared::ReadError) -> DoSomethingError {
         DoSomethingError::ReadError(err)
+    }
+}
+
+impl From<shared::WriteError> for DoSomethingError {
+    fn from(err: shared::WriteError) -> DoSomethingError {
+        DoSomethingError::WriteError(err)
     }
 }
 
@@ -33,14 +41,7 @@ fn do_something(fd: i32) -> Result<(), DoSomethingError> {
 
     // Write
 
-    unsafe {
-        let response = "world";
-        libc::write(
-            fd,
-            response as *const _ as *const libc::c_void,
-            response.len(),
-        );
-    }
+    shared::write(fd, "world".as_bytes())?;
 
     Ok(())
 }
