@@ -1,7 +1,5 @@
 use libc::setsockopt;
-use libc::socket;
 use libc::AF_INET;
-use libc::SOCK_STREAM;
 use libc::SOL_SOCKET;
 use libc::SOMAXCONN;
 use libc::SO_REUSEADDR;
@@ -40,14 +38,12 @@ fn do_something(fd: i32) {
     }
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     // Create socket
 
-    let fd = unsafe { socket(AF_INET, SOCK_STREAM, 0) };
-    if fd < 0 {
-        println!("unable to create socket");
-        std::process::exit(1);
-    }
+    let fd = shared::create_socket()?;
+
+    println!("created socket fd={}", fd);
 
     unsafe {
         let val = 1;

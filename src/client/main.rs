@@ -1,14 +1,10 @@
-use libc::{socket, AF_INET, INADDR_LOOPBACK, SOCK_STREAM};
+use libc::{AF_INET, INADDR_LOOPBACK};
 use std::mem;
 
-fn main() {
+fn main() -> Result<(), String> {
     // Create socket
 
-    let fd = unsafe { socket(AF_INET, SOCK_STREAM, 0) };
-    if fd < 0 {
-        println!("unable to create socket");
-        std::process::exit(1);
-    }
+    let fd = shared::create_socket()?;
 
     println!("created socket fd={}", fd);
 
@@ -73,4 +69,6 @@ fn main() {
     unsafe {
         libc::close(fd);
     }
+
+    Ok(())
 }
