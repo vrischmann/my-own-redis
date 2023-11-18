@@ -3,6 +3,17 @@ name = "my-own-redis"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "shared"
+path = "src/shared/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/server/main.rs"
+
+[[bin]]
+name = "client"
+path = "src/client/main.rs"
 
 [dependencies]
+libc = "0.2.150"
