@@ -1,5 +1,4 @@
 use libc::setsockopt;
-use libc::AF_INET;
 use libc::SOL_SOCKET;
 use libc::SOMAXCONN;
 use libc::SO_REUSEADDR;
@@ -67,14 +66,7 @@ fn main() -> Result<(), String> {
 
     // Bind
 
-    let addr = libc::sockaddr_in {
-        sin_family: AF_INET as libc::sa_family_t,
-        sin_port: (1234 as u16).to_be(),
-        sin_addr: libc::in_addr {
-            s_addr: (0 as u32).to_be(),
-        },
-        sin_zero: [0; 8],
-    };
+    let addr = shared::make_addr([0, 0, 0, 0], 1234);
 
     let rv = unsafe {
         libc::bind(

@@ -1,4 +1,3 @@
-use libc::{AF_INET, INADDR_LOOPBACK};
 use std::mem;
 
 fn main() -> Result<(), String> {
@@ -10,14 +9,7 @@ fn main() -> Result<(), String> {
 
     // Connect
 
-    let addr = libc::sockaddr_in {
-        sin_family: AF_INET as libc::sa_family_t,
-        sin_port: (1234 as u16).to_be(),
-        sin_addr: libc::in_addr {
-            s_addr: INADDR_LOOPBACK.to_be(),
-        },
-        sin_zero: [0; 8],
-    };
+    let addr = shared::make_addr([127, 0, 0, 1], 1234);
 
     println!("connecting to 127.0.0.1:1234");
 

@@ -1,5 +1,18 @@
 use libc::{socket, AF_INET, SOCK_STREAM};
 
+pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
+    let s_addr = u32::from_be_bytes(addr);
+
+    libc::sockaddr_in {
+        sin_family: AF_INET as libc::sa_family_t,
+        sin_port: port.to_be(),
+        sin_addr: libc::in_addr {
+            s_addr: s_addr.to_be(),
+        },
+        sin_zero: [0; 8],
+    }
+}
+
 pub enum SocketError {
     Unknown(i32),
 }
