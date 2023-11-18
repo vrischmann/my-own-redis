@@ -5,24 +5,29 @@ use libc::SOMAXCONN;
 use libc::SO_REUSEADDR;
 use std::mem;
 
-fn do_something(fd: i32) {
+enum DoSomethingError {
+    ReadError(shared::ReadError),
+}
+
+impl From<DoSomethingError> for String {
+    fn from(err: DoSomethingError) -> String {
+        match err {
+            DoSomethingError::ReadError(err) => err.into(),
+        }
+    }
+}
+
+impl From<shared::ReadError> for DoSomethingError {
+    fn from(err: shared::ReadError) -> DoSomethingError {
+        DoSomethingError::ReadError(err)
+    }
+}
+
+fn do_something(fd: i32) -> Result<(), DoSomethingError> {
     // Read
 
     let mut read_buf: [u8; 64] = [0; 64];
-
-    let n = unsafe {
-        libc::read(
-            fd,
-            &mut read_buf as *mut _ as *mut libc::c_void,
-            read_buf.len() - 1,
-        )
-    };
-    if n < 0 {
-        println!("unable to read from fd");
-        std::process::exit(1);
-    }
-
-    let data: &[u8] = &read_buf[0..n as usize];
+    let data = shared::read(fd, &mut read_buf)?;
 
     println!("client says \"{}\"", String::from_utf8_lossy(data));
 
@@ -36,6 +41,8 @@ fn do_something(fd: i32) {
             response.len(),
         );
     }
+
+    Ok(())
 }
 
 fn main() -> Result<(), String> {
@@ -111,7 +118,7 @@ fn main() -> Result<(), String> {
             client_addr.sin_addr.s_addr, client_addr.sin_port, conn_fd
         );
 
-        do_something(conn_fd);
+        do_something(conn_fd)?;
 
         unsafe { libc::close(conn_fd) };
     }

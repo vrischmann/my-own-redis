@@ -20,3 +20,26 @@ pub fn create_socket() -> Result<i32, SocketError> {
         Ok(fd)
     }
 }
+
+pub enum ReadError {
+    Unknown(i32),
+}
+
+impl From<ReadError> for String {
+    fn from(err: ReadError) -> String {
+        match err {
+            ReadError::Unknown(n) => format!("unknown (code={})", n),
+        }
+    }
+}
+
+pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
+    let n = unsafe { libc::read(fd, buf as *mut _ as *mut libc::c_void, buf.len() - 1) };
+    if n < 0 {
+        return Err(ReadError::Unknown(fd));
+    }
+
+    let data = &buf[0..n as usize];
+
+    Ok(data)
+}

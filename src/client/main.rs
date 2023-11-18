@@ -46,23 +46,10 @@ fn main() -> Result<(), String> {
         std::process::exit(1);
     }
 
-    // READ
+    // Read
 
     let mut read_buf: [u8; 64] = [0; 64];
-
-    let n = unsafe {
-        libc::read(
-            fd,
-            &mut read_buf as *mut _ as *mut libc::c_void,
-            read_buf.len() - 1,
-        )
-    };
-    if n < 0 {
-        println!("unable to read from fd");
-        std::process::exit(1);
-    }
-
-    let data: &[u8] = &read_buf[0..n as usize];
+    let data = shared::read(fd, &mut read_buf)?;
 
     println!("server says \"{}\"", String::from_utf8_lossy(data));
 
