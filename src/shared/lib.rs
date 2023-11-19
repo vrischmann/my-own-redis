@@ -15,13 +15,13 @@ pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
 }
 
 pub enum SocketError {
-    Unknown(i32),
+    IO(io::Error),
 }
 
 impl From<SocketError> for String {
     fn from(err: SocketError) -> String {
         match err {
-            SocketError::Unknown(n) => format!("unknown (code={})", n),
+            SocketError::IO(err) => format!("{}", err),
         }
     }
 }
@@ -29,21 +29,19 @@ impl From<SocketError> for String {
 pub fn create_socket() -> Result<i32, SocketError> {
     let fd = unsafe { socket(AF_INET, SOCK_STREAM, 0) };
     if fd < 0 {
-        Err(SocketError::Unknown(fd))
+        Err(SocketError::IO(std::io::Error::last_os_error()))
     } else {
         Ok(fd)
     }
 }
 
 pub enum FnctlError {
-    Unknown(i32),
     IO(io::Error),
 }
 
 impl From<FnctlError> for String {
     fn from(err: FnctlError) -> String {
         match err {
-            FnctlError::Unknown(n) => format!("unknown (code={})", n),
             FnctlError::IO(err) => format!("{}", err),
         }
     }
@@ -66,15 +64,15 @@ pub fn set_socket_nonblocking(fd: i32) -> Result<(), FnctlError> {
 }
 
 pub enum ReadError {
-    Unknown(i32),
     EndOfStream,
+    IO(io::Error),
 }
 
 impl From<ReadError> for String {
     fn from(err: ReadError) -> String {
         match err {
-            ReadError::Unknown(n) => format!("unknown (code={})", n),
             ReadError::EndOfStream => "end of stream".to_string(),
+            ReadError::IO(err) => format!("{}", err),
         }
     }
 }
@@ -82,7 +80,7 @@ impl From<ReadError> for String {
 pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
     let n = unsafe { libc::read(fd, buf as *mut _ as *mut libc::c_void, buf.len() - 1) };
     if n < 0 {
-        return Err(ReadError::Unknown(fd));
+        return Err(ReadError::IO(std::io::Error::last_os_error()));
     }
 
     let data = &buf[0..n as usize];
@@ -105,7 +103,7 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
         if n == 0 {
             return Err(ReadError::EndOfStream);
         } else if n < 0 {
-            return Err(ReadError::Unknown(fd));
+            return Err(ReadError::IO(std::io::Error::last_os_error()));
         }
 
         let n = n as usize;
@@ -119,13 +117,13 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
 }
 
 pub enum WriteError {
-    Unknown(i32),
+    IO(io::Error),
 }
 
 impl From<WriteError> for String {
     fn from(err: WriteError) -> String {
         match err {
-            WriteError::Unknown(n) => format!("unknown (code={})", n),
+            WriteError::IO(err) => format!("{}", err),
         }
     }
 }
@@ -133,7 +131,7 @@ impl From<WriteError> for String {
 pub fn write(fd: i32, buf: &[u8]) -> Result<isize, WriteError> {
     let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
     if n < 0 {
-        return Err(WriteError::Unknown(n as i32));
+        return Err(WriteError::IO(std::io::Error::last_os_error()));
     }
 
     Ok(n)
@@ -146,7 +144,7 @@ pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteError> {
     while remaining > 0 {
         let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
         if n < 0 {
-            return Err(WriteError::Unknown(n as i32));
+            return Err(WriteError::IO(std::io::Error::last_os_error()));
         }
 
         let n = n as usize;
