@@ -1,12 +1,12 @@
 use libc::setsockopt;
 use libc::{SOL_SOCKET, SOMAXCONN, SO_REUSEADDR};
-use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
+use shared::{BUF_LEN, HEADER_LEN};
 use std::mem;
 
 enum ProcessOneRequestError {
     ReadError(shared::ReadError),
     WriteError(shared::WriteError),
-    MessageTooLong(usize),
+    EndOfStream,
 }
 
 impl From<ProcessOneRequestError> for String {
@@ -14,7 +14,7 @@ impl From<ProcessOneRequestError> for String {
         match err {
             ProcessOneRequestError::ReadError(err) => err.into(),
             ProcessOneRequestError::WriteError(err) => err.into(),
-            ProcessOneRequestError::MessageTooLong(n) => format!("message too long ({} bytes)", n),
+            ProcessOneRequestError::EndOfStream => "end of stream".to_string(),
         }
     }
 }
@@ -31,42 +31,57 @@ impl From<shared::WriteError> for ProcessOneRequestError {
     }
 }
 
-fn process_one_request(fd: i32) -> Result<(), ProcessOneRequestError> {
+fn process_requests(fd: i32) -> Result<(), ProcessOneRequestError> {
     let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    let mut read_pos = 0;
+    let mut need_more = true;
 
-    // Read and parse request header
+    loop {
+        if need_more {
+            let data = shared::read(fd, &mut read_buf[read_pos..])?;
+            if data.is_empty() {
+                return Err(ProcessOneRequestError::EndOfStream);
+            }
 
-    shared::read_full(fd, &mut read_buf[0..HEADER_LEN])?;
-    let message_len = {
-        let header_data = &read_buf[0..HEADER_LEN];
-        let len = i32::from_be_bytes(header_data.try_into().unwrap());
+            read_pos += data.len();
+            need_more = false;
 
-        len as usize
-    };
+            println!("read {} bytes of data", data.len());
+        }
 
-    if message_len > MAX_MSG_LEN {
-        return Err(ProcessOneRequestError::MessageTooLong(message_len));
+        let data = &read_buf[0..read_pos];
+
+        match shared::Request::try_parse(&data) {
+            Ok((request, consumed)) => {
+                println!("client says \"{}\"", String::from_utf8_lossy(request.body));
+
+                // Reply
+
+                let reply = "world";
+
+                let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+
+                write_buf[0..HEADER_LEN].copy_from_slice(&(reply.len() as u32).to_be_bytes());
+                write_buf[HEADER_LEN..HEADER_LEN + reply.len()].copy_from_slice(reply.as_bytes());
+
+                shared::write_full(fd, &write_buf)?;
+
+                //
+
+                read_pos -= consumed;
+                need_more = read_pos <= 0;
+            }
+            Err(err) => match err {
+                shared::ParseRequestError::Incomplete => {
+                    need_more = true;
+                    println!("incomplete request");
+                }
+                shared::ParseRequestError::MessageTooLong(n) => {
+                    println!("message too long (size={})", n);
+                }
+            },
+        }
     }
-
-    // Read request body
-
-    shared::read_full(fd, &mut read_buf[HEADER_LEN..])?;
-    let body = &read_buf[HEADER_LEN..];
-
-    println!("client says \"{}\"", String::from_utf8_lossy(body));
-
-    // Reply
-
-    let reply = "world";
-
-    let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
-
-    write_buf[0..HEADER_LEN].copy_from_slice(&(reply.len() as u32).to_be_bytes());
-    write_buf[HEADER_LEN..HEADER_LEN + reply.len()].copy_from_slice(reply.as_bytes());
-
-    shared::write_full(fd, &write_buf)?;
-
-    Ok(())
 }
 
 fn main() -> Result<(), String> {
@@ -137,15 +152,21 @@ fn main() -> Result<(), String> {
 
         // serve this connection indefinitely
 
-        loop {
-            if let Err(err) = process_one_request(conn_fd) {
-                println!(
-                    "failed to process request, err: {}",
-                    <ProcessOneRequestError as Into<String>>::into(err)
-                );
-                break;
+        if let Err(err) = process_requests(conn_fd) {
+            match err {
+                ProcessOneRequestError::WriteError(_) | ProcessOneRequestError::ReadError(_) => {
+                    println!(
+                        "failed to process request, err: {}",
+                        <ProcessOneRequestError as Into<String>>::into(err)
+                    );
+                }
+                ProcessOneRequestError::EndOfStream => {
+                    println!("end of stream, fd={}", conn_fd);
+                }
             }
         }
+
+        println!("closing fd={}", conn_fd);
 
         unsafe { libc::close(conn_fd) };
     }

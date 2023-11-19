@@ -37,7 +37,7 @@ fn query(fd: i32, text: &str) -> Result<(), QueryError> {
     write_buf[0..HEADER_LEN].copy_from_slice(&(text.len() as u32).to_be_bytes());
     write_buf[HEADER_LEN..HEADER_LEN + text.len()].copy_from_slice(text.as_bytes());
 
-    shared::write_full(fd, &write_buf)?;
+    shared::write_full(fd, &write_buf[0..HEADER_LEN + text.len()])?;
 
     // Read
 

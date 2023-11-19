@@ -47,7 +47,7 @@ impl From<ReadError> for String {
 }
 
 pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
-    let n = unsafe { libc::read(fd, buf as *mut _ as *mut libc::c_void, buf.len() - 1) };
+    let n = unsafe { libc::read(fd, buf as *mut _ as *mut libc::c_void, buf.len()) };
     if n < 0 {
         return Err(ReadError::Unknown(fd));
     }
@@ -127,3 +127,42 @@ pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteError> {
 pub const HEADER_LEN: usize = 4;
 pub const MAX_MSG_LEN: usize = 4096;
 pub const BUF_LEN: usize = HEADER_LEN + MAX_MSG_LEN;
+
+pub struct Request<'a> {
+    pub body: &'a [u8],
+}
+
+pub enum ParseRequestError {
+    Incomplete,
+    MessageTooLong(usize),
+}
+
+impl<'a> Request<'a> {
+    pub fn try_parse(buf: &'a [u8]) -> Result<(Self, usize), ParseRequestError> {
+        println!("buf: {:?}", buf);
+
+        if buf.len() < HEADER_LEN {
+            return Err(ParseRequestError::Incomplete);
+        }
+
+        let message_len = {
+            let header_data = &buf[0..HEADER_LEN];
+            let len = i32::from_be_bytes(header_data.try_into().unwrap());
+
+            len as usize
+        };
+
+        if message_len > MAX_MSG_LEN {
+            return Err(ParseRequestError::MessageTooLong(message_len));
+        }
+
+        let body = &buf[HEADER_LEN..];
+        if body.len() < message_len {
+            return Err(ParseRequestError::Incomplete);
+        }
+
+        let consumed = HEADER_LEN + body.len();
+
+        Ok((Self { body }, consumed))
+    }
+}
