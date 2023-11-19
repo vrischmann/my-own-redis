@@ -100,45 +100,23 @@ fn main() -> Result<(), shared::MainError> {
 
     // Bind
 
+    println!("binding socket");
+
     let addr = shared::make_addr([0, 0, 0, 0], 1234);
 
-    let rv = unsafe {
-        libc::bind(
-            fd,
-            &addr as *const _ as *const libc::sockaddr,
-            mem::size_of_val(&addr) as libc::socklen_t,
-        )
-    };
-    if rv != 0 {
-        println!("unable to bind to 0.0.0.0:1234");
-        std::process::exit(1);
-    }
+    shared::bind(fd, &addr)?;
 
     // Listen
 
-    let rv = unsafe { libc::listen(fd, SOMAXCONN) };
-    if rv != 0 {
-        println!("unable to bind to 0.0.0.0:1234");
-        std::process::exit(1);
-    }
-
     println!("listening on 0.0.0.0:1234");
+
+    shared::listen(fd, SOMAXCONN)?;
 
     loop {
         let mut client_addr: libc::sockaddr_in = unsafe { mem::zeroed() };
         let mut client_addr_len: libc::socklen_t = unsafe { mem::zeroed() };
 
-        let conn_fd = unsafe {
-            libc::accept(
-                fd,
-                &mut client_addr as *mut _ as *mut libc::sockaddr,
-                &mut client_addr_len,
-            )
-        };
-        if conn_fd < 0 {
-            println!("unable to accept connection");
-            std::process::exit(1);
-        }
+        let conn_fd = shared::accept(fd, &mut client_addr, &mut client_addr_len)?;
 
         println!(
             "accepted connection from {}:{}, fd={}",

@@ -88,6 +88,43 @@ pub fn set_socket_opt(fd: i32, opt: libc::c_int, val: i32) -> io::Result<()> {
     Ok(())
 }
 
+pub fn bind(fd: i32, addr: &libc::sockaddr_in) -> io::Result<()> {
+    let rv = unsafe {
+        libc::bind(
+            fd,
+            addr as *const _ as *const libc::sockaddr,
+            mem::size_of_val(addr) as libc::socklen_t,
+        )
+    };
+    if rv < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+pub fn listen(fd: i32, backlog: libc::c_int) -> io::Result<()> {
+    let rv = unsafe { libc::listen(fd, backlog) };
+    if rv < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
+pub fn accept(
+    fd: i32,
+    addr: &mut libc::sockaddr_in,
+    addr_len: &mut libc::socklen_t,
+) -> io::Result<i32> {
+    let conn_fd = unsafe { libc::accept(fd, addr as *mut _ as *mut libc::sockaddr, addr_len) };
+    if conn_fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(conn_fd)
+}
+
 pub enum ReadError {
     EndOfStream,
     IO(io::Error),
