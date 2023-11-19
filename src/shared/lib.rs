@@ -1,4 +1,5 @@
-use libc::{socket, AF_INET, SOCK_STREAM};
+use libc::{socket, AF_INET, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_STREAM};
+use std::io;
 
 pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
     let s_addr = u32::from_be_bytes(addr);
@@ -32,6 +33,36 @@ pub fn create_socket() -> Result<i32, SocketError> {
     } else {
         Ok(fd)
     }
+}
+
+pub enum FnctlError {
+    Unknown(i32),
+    IO(io::Error),
+}
+
+impl From<FnctlError> for String {
+    fn from(err: FnctlError) -> String {
+        match err {
+            FnctlError::Unknown(n) => format!("unknown (code={})", n),
+            FnctlError::IO(err) => format!("{}", err),
+        }
+    }
+}
+
+pub fn set_socket_nonblocking(fd: i32) -> Result<(), FnctlError> {
+    let mut flags = unsafe { libc::fcntl(fd, F_GETFL, 0) };
+    if flags < 0 {
+        return Err(FnctlError::IO(std::io::Error::last_os_error()));
+    }
+
+    flags |= O_NONBLOCK;
+
+    let res = unsafe { libc::fcntl(fd, F_SETFL, flags) };
+    if res < 0 {
+        return Err(FnctlError::IO(std::io::Error::last_os_error()));
+    }
+
+    Ok(())
 }
 
 pub enum ReadError {
