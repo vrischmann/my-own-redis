@@ -69,6 +69,24 @@ fn process_one_request(fd: i32) -> Result<(), ProcessOneRequestError> {
     Ok(())
 }
 
+enum State {
+    ReadRequest,
+    SendResponse,
+    DeleteConnection,
+}
+
+struct Connection {
+    fd: i32,
+    state: State,
+
+    read_buf_size: usize,
+    read_buf: [u8; shared::BUF_LEN],
+
+    write_buf_size: usize,
+    write_buf_sent: usize,
+    write_buf: [u8; shared::BUF_LEN],
+}
+
 fn main() -> Result<(), String> {
     // Create socket
 
