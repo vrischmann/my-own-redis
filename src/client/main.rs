@@ -1,6 +1,5 @@
 use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
 use std::fmt;
-use std::mem;
 
 enum QueryError {
     ReadError(shared::ReadError),
@@ -80,17 +79,7 @@ fn main() -> Result<(), shared::MainError> {
 
     println!("connecting to 127.0.0.1:1234");
 
-    let rv = unsafe {
-        libc::connect(
-            fd,
-            &addr as *const _ as *const libc::sockaddr,
-            mem::size_of_val(&addr) as libc::socklen_t,
-        )
-    };
-    if rv != 0 {
-        println!("unable to connect to 127.0.0.1:1234");
-        std::process::exit(1);
-    }
+    shared::connect(fd, &addr)?;
 
     println!("connected to 127.0.0.1:1234");
 
@@ -100,9 +89,7 @@ fn main() -> Result<(), shared::MainError> {
     query(fd, "hello2")?;
     query(fd, "hello3")?;
 
-    unsafe {
-        libc::close(fd);
-    }
+    shared::close(fd)?;
 
     Ok(())
 }

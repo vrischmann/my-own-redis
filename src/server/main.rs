@@ -134,6 +134,6 @@ fn main() -> Result<(), shared::MainError> {
 
         println!("closing fd={}", conn_fd);
 
-        unsafe { libc::close(conn_fd) };
+        shared::close(conn_fd)?;
     }
 }

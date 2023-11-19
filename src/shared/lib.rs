@@ -125,6 +125,28 @@ pub fn accept(
     Ok(conn_fd)
 }
 
+pub fn close(fd: i32) -> io::Result<()> {
+    let n = unsafe { libc::close(fd) };
+    if n < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+pub fn connect(fd: i32, addr: &libc::sockaddr_in) -> io::Result<()> {
+    let n = unsafe {
+        libc::connect(
+            fd,
+            addr as *const _ as *const libc::sockaddr,
+            mem::size_of_val(addr) as libc::socklen_t,
+        )
+    };
+    if n < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 pub enum ReadError {
     EndOfStream,
     IO(io::Error),
