@@ -36,12 +36,14 @@ pub fn create_socket() -> Result<i32, SocketError> {
 
 pub enum ReadError {
     Unknown(i32),
+    EndOfStream,
 }
 
 impl From<ReadError> for String {
     fn from(err: ReadError) -> String {
         match err {
             ReadError::Unknown(n) => format!("unknown (code={})", n),
+            ReadError::EndOfStream => "end of stream".to_string(),
         }
     }
 }
@@ -69,7 +71,9 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
                 remaining as usize,
             )
         };
-        if n < 0 {
+        if n == 0 {
+            return Err(ReadError::EndOfStream);
+        } else if n < 0 {
             return Err(ReadError::Unknown(fd));
         }
 

@@ -147,6 +147,8 @@ fn main() -> Result<(), String> {
             }
         }
 
+        println!("closing fd={}", conn_fd);
+
         unsafe { libc::close(conn_fd) };
     }
 }
