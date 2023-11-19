@@ -156,11 +156,13 @@ impl<'a> Request<'a> {
             return Err(ParseRequestError::MessageTooLong(message_len));
         }
 
-        let body = &buf[HEADER_LEN..];
-        if body.len() < message_len {
+        let remaining_buf = &buf[HEADER_LEN..];
+
+        if remaining_buf.len() < message_len {
             return Err(ParseRequestError::Incomplete);
         }
 
+        let body = &buf[HEADER_LEN..HEADER_LEN + message_len];
         let consumed = HEADER_LEN + body.len();
 
         Ok((Self { body }, consumed))
