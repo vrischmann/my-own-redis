@@ -1,4 +1,5 @@
 use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
+use std::fmt;
 use std::mem;
 
 enum QueryError {
@@ -19,12 +20,12 @@ impl From<shared::WriteError> for QueryError {
     }
 }
 
-impl From<QueryError> for String {
-    fn from(err: QueryError) -> String {
-        match err {
-            QueryError::ReadError(err) => err.into(),
-            QueryError::WriteError(err) => err.into(),
-            QueryError::MessageTooLong(n) => format!("message too long ({} bytes)", n),
+impl fmt::Display for QueryError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QueryError::ReadError(err) => err.fmt(f),
+            QueryError::WriteError(err) => err.fmt(f),
+            QueryError::MessageTooLong(n) => write!(f, "message too long ({} bytes)", n),
         }
     }
 }
@@ -66,7 +67,7 @@ fn query(fd: i32, text: &str) -> Result<(), QueryError> {
     Ok(())
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), shared::MainError> {
     // Create socket
 
     let fd = shared::create_socket()?;

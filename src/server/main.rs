@@ -1,6 +1,6 @@
-use libc::setsockopt;
-use libc::{SOL_SOCKET, SOMAXCONN, SO_REUSEADDR};
+use libc::{SOMAXCONN, SO_REUSEADDR};
 use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
+use std::fmt;
 use std::mem;
 
 enum ProcessOneRequestError {
@@ -9,12 +9,14 @@ enum ProcessOneRequestError {
     MessageTooLong(usize),
 }
 
-impl From<ProcessOneRequestError> for String {
-    fn from(err: ProcessOneRequestError) -> String {
-        match err {
-            ProcessOneRequestError::ReadError(err) => err.into(),
-            ProcessOneRequestError::WriteError(err) => err.into(),
-            ProcessOneRequestError::MessageTooLong(n) => format!("message too long ({} bytes)", n),
+impl fmt::Display for ProcessOneRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProcessOneRequestError::ReadError(err) => err.fmt(f),
+            ProcessOneRequestError::WriteError(err) => err.fmt(f),
+            ProcessOneRequestError::MessageTooLong(n) => {
+                write!(f, "message too long ({} bytes)", n)
+            }
         }
     }
 }
@@ -87,24 +89,14 @@ struct Connection {
     write_buf: [u8; shared::BUF_LEN],
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), shared::MainError> {
     // Create socket
 
     let fd = shared::create_socket()?;
 
     println!("created socket fd={}", fd);
 
-    unsafe {
-        let val = 1;
-
-        setsockopt(
-            fd,
-            SOL_SOCKET,
-            SO_REUSEADDR,
-            &val as *const _ as *const libc::c_void,
-            mem::size_of_val(&val) as libc::socklen_t,
-        );
-    };
+    shared::set_socket_opt(fd, SO_REUSEADDR, 1)?;
 
     // Bind
 
@@ -157,10 +149,7 @@ fn main() -> Result<(), String> {
 
         loop {
             if let Err(err) = process_one_request(conn_fd) {
-                println!(
-                    "failed to process request, err: {}",
-                    <ProcessOneRequestError as Into<String>>::into(err)
-                );
+                println!("failed to process request, err: {}", err);
                 break;
             }
         }

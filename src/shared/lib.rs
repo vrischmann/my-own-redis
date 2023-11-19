@@ -1,5 +1,25 @@
-use libc::{socket, AF_INET, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_STREAM};
+use libc::{setsockopt, socket, AF_INET, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_STREAM, SOL_SOCKET};
+use std::fmt;
 use std::io;
+use std::mem;
+
+#[derive(Debug)]
+pub struct MainError {
+    message: String,
+}
+
+impl<T> From<T> for MainError
+where
+    T: fmt::Display,
+{
+    fn from(v: T) -> Self {
+        Self {
+            message: v.to_string(),
+        }
+    }
+}
+
+//
 
 pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
     let s_addr = u32::from_be_bytes(addr);
@@ -14,22 +34,10 @@ pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
     }
 }
 
-pub enum SocketError {
-    IO(io::Error),
-}
-
-impl From<SocketError> for String {
-    fn from(err: SocketError) -> String {
-        match err {
-            SocketError::IO(err) => format!("{}", err),
-        }
-    }
-}
-
-pub fn create_socket() -> Result<i32, SocketError> {
+pub fn create_socket() -> io::Result<i32> {
     let fd = unsafe { socket(AF_INET, SOCK_STREAM, 0) };
     if fd < 0 {
-        Err(SocketError::IO(std::io::Error::last_os_error()))
+        Err(std::io::Error::last_os_error())
     } else {
         Ok(fd)
     }
@@ -63,16 +71,33 @@ pub fn set_socket_nonblocking(fd: i32) -> Result<(), FnctlError> {
     Ok(())
 }
 
+pub fn set_socket_opt(fd: i32, opt: libc::c_int, val: i32) -> io::Result<()> {
+    let n = unsafe {
+        setsockopt(
+            fd,
+            SOL_SOCKET,
+            opt,
+            &val as *const _ as *const libc::c_void,
+            mem::size_of_val(&val) as libc::socklen_t,
+        )
+    };
+    if n < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(())
+}
+
 pub enum ReadError {
     EndOfStream,
     IO(io::Error),
 }
 
-impl From<ReadError> for String {
-    fn from(err: ReadError) -> String {
-        match err {
-            ReadError::EndOfStream => "end of stream".to_string(),
-            ReadError::IO(err) => format!("{}", err),
+impl fmt::Display for ReadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ReadError::EndOfStream => write!(f, "end of stream"),
+            ReadError::IO(err) => err.fmt(f),
         }
     }
 }
@@ -120,10 +145,10 @@ pub enum WriteError {
     IO(io::Error),
 }
 
-impl From<WriteError> for String {
-    fn from(err: WriteError) -> String {
-        match err {
-            WriteError::IO(err) => format!("{}", err),
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WriteError::IO(err) => err.fmt(f),
         }
     }
 }
