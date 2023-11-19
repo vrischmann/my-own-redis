@@ -2,28 +2,28 @@ use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
 use std::fmt;
 
 enum QueryError {
-    ReadError(shared::ReadError),
-    WriteError(shared::WriteError),
+    ReadFullError(shared::ReadFullError),
+    WriteFullError(shared::WriteFullError),
     MessageTooLong(usize),
 }
 
-impl From<shared::ReadError> for QueryError {
-    fn from(err: shared::ReadError) -> QueryError {
-        QueryError::ReadError(err)
+impl From<shared::ReadFullError> for QueryError {
+    fn from(err: shared::ReadFullError) -> QueryError {
+        QueryError::ReadFullError(err)
     }
 }
 
-impl From<shared::WriteError> for QueryError {
-    fn from(err: shared::WriteError) -> QueryError {
-        QueryError::WriteError(err)
+impl From<shared::WriteFullError> for QueryError {
+    fn from(err: shared::WriteFullError) -> QueryError {
+        QueryError::WriteFullError(err)
     }
 }
 
 impl fmt::Display for QueryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            QueryError::ReadError(err) => err.fmt(f),
-            QueryError::WriteError(err) => err.fmt(f),
+            QueryError::ReadFullError(err) => err.fmt(f),
+            QueryError::WriteFullError(err) => err.fmt(f),
             QueryError::MessageTooLong(n) => write!(f, "message too long ({} bytes)", n),
         }
     }

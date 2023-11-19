@@ -45,29 +45,17 @@ pub fn create_socket() -> io::Result<i32> {
     }
 }
 
-pub enum FnctlError {
-    IO(io::Error),
-}
-
-impl From<FnctlError> for String {
-    fn from(err: FnctlError) -> String {
-        match err {
-            FnctlError::IO(err) => format!("{}", err),
-        }
-    }
-}
-
-pub fn set_socket_nonblocking(fd: i32) -> Result<(), FnctlError> {
+pub fn set_socket_nonblocking(fd: i32) -> io::Result<()> {
     let mut flags = unsafe { libc::fcntl(fd, F_GETFL, 0) };
     if flags < 0 {
-        return Err(FnctlError::IO(std::io::Error::last_os_error()));
+        return Err(std::io::Error::last_os_error());
     }
 
     flags |= O_NONBLOCK;
 
     let res = unsafe { libc::fcntl(fd, F_SETFL, flags) };
     if res < 0 {
-        return Err(FnctlError::IO(std::io::Error::last_os_error()));
+        return Err(std::io::Error::last_os_error());
     }
 
     Ok(())
@@ -149,24 +137,10 @@ pub fn connect(fd: i32, addr: &libc::sockaddr_in) -> io::Result<()> {
     Ok(())
 }
 
-pub enum ReadError {
-    EndOfStream,
-    IO(io::Error),
-}
-
-impl fmt::Display for ReadError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ReadError::EndOfStream => write!(f, "end of stream"),
-            ReadError::IO(err) => err.fmt(f),
-        }
-    }
-}
-
-pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
+pub fn read(fd: i32, buf: &mut [u8]) -> io::Result<&[u8]> {
     let n = unsafe { libc::read(fd, buf as *mut _ as *mut libc::c_void, buf.len() - 1) };
     if n < 0 {
-        return Err(ReadError::IO(std::io::Error::last_os_error()));
+        return Err(std::io::Error::last_os_error());
     }
 
     let data = &buf[0..n as usize];
@@ -174,7 +148,21 @@ pub fn read(fd: i32, buf: &mut [u8]) -> Result<&[u8], ReadError> {
     Ok(data)
 }
 
-pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
+pub enum ReadFullError {
+    EndOfStream,
+    IO(io::Error),
+}
+
+impl fmt::Display for ReadFullError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ReadFullError::EndOfStream => write!(f, "end of stream"),
+            ReadFullError::IO(err) => err.fmt(f),
+        }
+    }
+}
+
+pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadFullError> {
     let mut remaining = buf.len();
     let mut write_buf = buf;
 
@@ -187,9 +175,9 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
             )
         };
         if n == 0 {
-            return Err(ReadError::EndOfStream);
+            return Err(ReadFullError::EndOfStream);
         } else if n < 0 {
-            return Err(ReadError::IO(std::io::Error::last_os_error()));
+            return Err(ReadFullError::IO(std::io::Error::last_os_error()));
         }
 
         let n = n as usize;
@@ -202,35 +190,35 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadError> {
     Ok(())
 }
 
-pub enum WriteError {
+pub fn write(fd: i32, buf: &[u8]) -> io::Result<usize> {
+    let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
+    if n < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(n as usize)
+}
+
+pub enum WriteFullError {
     IO(io::Error),
 }
 
-impl fmt::Display for WriteError {
+impl fmt::Display for WriteFullError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            WriteError::IO(err) => err.fmt(f),
+            Self::IO(err) => err.fmt(f),
         }
     }
 }
 
-pub fn write(fd: i32, buf: &[u8]) -> Result<isize, WriteError> {
-    let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
-    if n < 0 {
-        return Err(WriteError::IO(std::io::Error::last_os_error()));
-    }
-
-    Ok(n)
-}
-
-pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteError> {
+pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteFullError> {
     let mut remaining = buf.len();
     let mut buf = buf;
 
     while remaining > 0 {
         let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
         if n < 0 {
-            return Err(WriteError::IO(std::io::Error::last_os_error()));
+            return Err(WriteFullError::IO(std::io::Error::last_os_error()));
         }
 
         let n = n as usize;
