@@ -10,7 +10,6 @@ use std::mem;
 enum State {
     ReadRequest,
     SendResponse,
-    DeleteConnection,
 }
 
 struct Connection {
@@ -25,44 +24,10 @@ struct Connection {
     write_buf: [u8; BUF_LEN],
 }
 
-enum ConnectionIOError {
-    ReadRequest(ReadRequestError),
-    SendResponse(SendResponseError),
-}
-
-impl From<ReadRequestError> for ConnectionIOError {
-    fn from(err: ReadRequestError) -> Self {
-        ConnectionIOError::ReadRequest(err)
-    }
-}
-
-impl From<SendResponseError> for ConnectionIOError {
-    fn from(err: SendResponseError) -> Self {
-        ConnectionIOError::SendResponse(err)
-    }
-}
-
-impl fmt::Display for ConnectionIOError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ConnectionIOError::ReadRequest(err) => err.fmt(f),
-            ConnectionIOError::SendResponse(err) => err.fmt(f),
-        }
-    }
-}
-
-fn do_connection_io(conn: &mut Connection) -> Result<(), ConnectionIOError> {
-    match conn.state {
-        State::ReadRequest => do_read_request(conn)?,
-        State::SendResponse => do_send_response(conn)?,
-        State::DeleteConnection => panic!("unexpected state {:?}", conn.state),
-    }
-    Ok(())
-}
-
 enum TryFillBufferError {
     TryOneRequest(TryOneRequestError),
     IO(io::Error),
+    EndOfStream,
 }
 
 impl From<TryOneRequestError> for TryFillBufferError {
@@ -82,6 +47,7 @@ impl fmt::Display for TryFillBufferError {
         match self {
             Self::TryOneRequest(err) => err.fmt(f),
             Self::IO(err) => err.fmt(f),
+            Self::EndOfStream => write!(f, "end of stream"),
         }
     }
 }
@@ -93,15 +59,27 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
         let read_buf = &mut connection.read_buf[connection.read_buf_size..];
 
         match shared::read(connection.fd, read_buf) {
-            Ok(data) => break data,
+            Ok(data) => {
+                if data.is_empty() {
+                    return Err(TryFillBufferError::EndOfStream);
+                } else {
+                    break data;
+                }
+            }
             Err(err) => {
                 if err.raw_os_error().unwrap() != libc::EAGAIN {
-                    connection.state = State::DeleteConnection;
+                    return Err(TryFillBufferError::IO(err));
                 }
                 return Ok(false);
             }
         }
     };
+
+    println!(
+        "data: {:?}, read buf size: {}",
+        data.len(),
+        connection.read_buf_size
+    );
 
     connection.read_buf_size += data.len();
     assert!(connection.read_buf_size < connection.read_buf.len());
@@ -122,6 +100,7 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
 
 enum TryOneRequestError {
     SendResponse(SendResponseError),
+    MessageTooLong,
 }
 
 impl From<SendResponseError> for TryOneRequestError {
@@ -134,6 +113,7 @@ impl fmt::Display for TryOneRequestError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::SendResponse(err) => err.fmt(f),
+            Self::MessageTooLong => write!(f, "message too long"),
         }
     }
 }
@@ -152,8 +132,7 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
         len as usize
     };
     if message_len > MAX_MSG_LEN {
-        connection.state = State::DeleteConnection;
-        return Ok(false);
+        return Err(TryOneRequestError::MessageTooLong);
     }
 
     if HEADER_LEN + message_len > connection.read_buf_size {
@@ -163,8 +142,13 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
 
     // Got one request
 
-    let body = &connection.read_buf[HEADER_LEN..];
+    let body = &connection.read_buf[HEADER_LEN..HEADER_LEN + message_len];
+
+    println!("message len: {}, body: {:?}", message_len, body);
+
     println!("client says \"{}\"", String::from_utf8_lossy(body));
+
+    std::thread::sleep_ms(1000);
 
     //
     // Generate the echo response
@@ -176,6 +160,7 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
 
     // Remove the request from the buffer
     let remaining = connection.read_buf_size - (HEADER_LEN + message_len);
+    println!("remaining {}", remaining);
     if remaining > 0 {
         let next_request_start = HEADER_LEN + message_len;
         connection
@@ -213,14 +198,38 @@ impl fmt::Display for ReadRequestError {
     }
 }
 
-fn do_read_request(connection: &mut Connection) -> Result<(), ReadRequestError> {
+enum ConnectionAction {
+    DoNothing,
+    Delete,
+}
+
+fn do_read_request(connection: &mut Connection) -> Result<ConnectionAction, ReadRequestError> {
     loop {
-        if !try_fill_buffer(connection)? {
+        let result = match try_fill_buffer(connection) {
+            Err(err) => {
+                match err {
+                    TryFillBufferError::EndOfStream => {
+                        println!("end of stream for connection {}", connection.fd);
+                    }
+                    TryFillBufferError::TryOneRequest(err) => {
+                        println!("try_one_request call failed, err: {}", err);
+                    }
+                    TryFillBufferError::IO(err) => {
+                        println!("try_fill_buffer call failed, err: {}", err);
+                    }
+                }
+                return Ok(ConnectionAction::Delete);
+            }
+            Ok(v) => v,
+        };
+        if !result {
             break;
         }
+
+        std::thread::sleep_ms(100);
     }
 
-    Ok(())
+    Ok(ConnectionAction::DoNothing)
 }
 
 enum SendResponseError {
@@ -241,14 +250,14 @@ impl fmt::Display for SendResponseError {
     }
 }
 
-fn do_send_response(connection: &mut Connection) -> Result<(), SendResponseError> {
+fn do_send_response(connection: &mut Connection) -> Result<ConnectionAction, SendResponseError> {
     loop {
         if !try_flush_buffer(connection)? {
             break;
         }
     }
 
-    Ok(())
+    Ok(ConnectionAction::DoNothing)
 }
 
 enum TryFlushBufferError {
@@ -271,13 +280,15 @@ impl fmt::Display for TryFlushBufferError {
 
 fn try_flush_buffer(connection: &mut Connection) -> Result<bool, TryFlushBufferError> {
     let written = loop {
-        let write_buf = &mut connection.write_buf[connection.write_buf_sent..];
+        let write_buf =
+            &mut connection.write_buf[connection.write_buf_sent..connection.write_buf_size];
+        println!("write buf: {:?}", write_buf.len());
 
         match shared::write(connection.fd, write_buf) {
             Ok(n) => break n,
             Err(err) => {
                 if err.raw_os_error().unwrap() != libc::EAGAIN {
-                    connection.state = State::DeleteConnection;
+                    return Err(TryFlushBufferError::IO(err));
                 }
                 return Ok(false);
             }
@@ -285,7 +296,11 @@ fn try_flush_buffer(connection: &mut Connection) -> Result<bool, TryFlushBufferE
     };
 
     connection.write_buf_sent += written;
-    assert!(connection.write_buf_sent < connection.write_buf_size);
+    println!(
+        "written: {}, write buf sent: {}, write buf size: {}",
+        written, connection.write_buf_sent, connection.write_buf_size
+    );
+    assert!(connection.write_buf_sent <= connection.write_buf_size);
 
     if connection.write_buf_sent == connection.write_buf_size {
         // Response was fully sent, change state back
@@ -380,7 +395,6 @@ fn main() -> Result<(), shared::MainError> {
                 events: (match connection.state {
                     State::ReadRequest => POLLIN,
                     State::SendResponse => POLLOUT,
-                    State::DeleteConnection => 0,
                 }) | POLLERR,
                 revents: 0,
             };
@@ -401,7 +415,7 @@ fn main() -> Result<(), shared::MainError> {
 
         // Process active connections
         for pfd in &poll_args {
-            if pfd.fd == fd || pfd.revents <= 0 {
+            if pfd.revents <= 0 {
                 continue;
             }
 
@@ -410,14 +424,20 @@ fn main() -> Result<(), shared::MainError> {
                 accept_new_connection(&mut connections, fd)?;
             } else {
                 match connections.get_mut(&pfd.fd) {
-                    Some(connection) => {
-                        do_connection_io(connection)?;
+                    Some(conn) => {
+                        let action = match conn.state {
+                            State::ReadRequest => do_read_request(conn)?,
+                            State::SendResponse => do_send_response(conn)?,
+                        };
 
-                        if let State::DeleteConnection = connection.state {
-                            connections.remove(&pfd.fd);
+                        match action {
+                            ConnectionAction::DoNothing => {}
+                            ConnectionAction::Delete => {
+                                connections.remove(&pfd.fd);
 
-                            println!("closing fd={}", pfd.fd);
-                            shared::close(pfd.fd)?;
+                                println!("closing fd={}", pfd.fd);
+                                shared::close(pfd.fd)?;
+                            }
                         }
                     }
                     None => println!("no connection for fd={}", pfd.fd),
