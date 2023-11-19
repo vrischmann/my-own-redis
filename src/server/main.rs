@@ -68,7 +68,11 @@ fn process_requests(fd: i32) -> Result<(), ProcessOneRequestError> {
 
                 //
 
-                read_pos -= consumed;
+                let remaining = read_pos - consumed;
+
+                read_buf.copy_within(consumed..read_pos, 0);
+                read_pos = remaining;
+
                 need_more = read_pos <= 0;
             }
             Err(err) => match err {

@@ -139,8 +139,6 @@ pub enum ParseRequestError {
 
 impl<'a> Request<'a> {
     pub fn try_parse(buf: &'a [u8]) -> Result<(Self, usize), ParseRequestError> {
-        println!("buf: {:?}", buf);
-
         if buf.len() < HEADER_LEN {
             return Err(ParseRequestError::Incomplete);
         }
