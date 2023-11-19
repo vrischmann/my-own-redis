@@ -37,7 +37,7 @@ fn query(fd: i32, text: &str) -> Result<(), QueryError> {
     write_buf[0..HEADER_LEN].copy_from_slice(&(text.len() as u32).to_be_bytes());
     write_buf[HEADER_LEN..HEADER_LEN + text.len()].copy_from_slice(text.as_bytes());
 
-    shared::write_full(fd, &write_buf)?;
+    shared::write_full(fd, &write_buf[0..HEADER_LEN + text.len()])?;
 
     // Read
 
@@ -58,7 +58,7 @@ fn query(fd: i32, text: &str) -> Result<(), QueryError> {
 
     // Read request body
 
-    shared::read_full(fd, &mut read_buf[HEADER_LEN..])?;
+    shared::read_full(fd, &mut read_buf[HEADER_LEN..HEADER_LEN + message_len])?;
     let body = &read_buf[HEADER_LEN..];
 
     println!("server says \"{}\"", String::from_utf8_lossy(body));

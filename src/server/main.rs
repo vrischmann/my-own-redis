@@ -75,12 +75,6 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
         }
     };
 
-    println!(
-        "data: {:?}, read buf size: {}",
-        data.len(),
-        connection.read_buf_size
-    );
-
     connection.read_buf_size += data.len();
     assert!(connection.read_buf_size < connection.read_buf.len());
 
@@ -144,11 +138,7 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
 
     let body = &connection.read_buf[HEADER_LEN..HEADER_LEN + message_len];
 
-    println!("message len: {}, body: {:?}", message_len, body);
-
     println!("client says \"{}\"", String::from_utf8_lossy(body));
-
-    std::thread::sleep_ms(1000);
 
     //
     // Generate the echo response
@@ -160,7 +150,6 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
 
     // Remove the request from the buffer
     let remaining = connection.read_buf_size - (HEADER_LEN + message_len);
-    println!("remaining {}", remaining);
     if remaining > 0 {
         let next_request_start = HEADER_LEN + message_len;
         connection
@@ -225,8 +214,6 @@ fn do_read_request(connection: &mut Connection) -> Result<ConnectionAction, Read
         if !result {
             break;
         }
-
-        std::thread::sleep_ms(100);
     }
 
     Ok(ConnectionAction::DoNothing)
@@ -282,7 +269,6 @@ fn try_flush_buffer(connection: &mut Connection) -> Result<bool, TryFlushBufferE
     let written = loop {
         let write_buf =
             &mut connection.write_buf[connection.write_buf_sent..connection.write_buf_size];
-        println!("write buf: {:?}", write_buf.len());
 
         match shared::write(connection.fd, write_buf) {
             Ok(n) => break n,
@@ -296,10 +282,6 @@ fn try_flush_buffer(connection: &mut Connection) -> Result<bool, TryFlushBufferE
     };
 
     connection.write_buf_sent += written;
-    println!(
-        "written: {}, write buf sent: {}, write buf size: {}",
-        written, connection.write_buf_sent, connection.write_buf_size
-    );
     assert!(connection.write_buf_sent <= connection.write_buf_size);
 
     if connection.write_buf_sent == connection.write_buf_size {
