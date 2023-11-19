@@ -10,6 +10,8 @@ pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
             s_addr: s_addr.to_be(),
         },
         sin_zero: [0; 8],
+        #[cfg(target_os = "macos")]
+        sin_len: 0,
     }
 }
 
