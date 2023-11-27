@@ -36,14 +36,14 @@ fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
 
     println!("writing all queries: {:?}", queries);
 
+    let mut write_buf = Vec::with_capacity(BUF_LEN * queries.len());
     for query in queries {
-        let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
-
+        write_buf.resize(HEADER_LEN + query.len(), 0xaa);
         write_buf[0..HEADER_LEN].copy_from_slice(&(query.len() as u32).to_be_bytes());
         write_buf[HEADER_LEN..HEADER_LEN + query.len()].copy_from_slice(query.as_bytes());
-
-        shared::write_full(fd, &write_buf[0..HEADER_LEN + query.len()])?;
     }
+
+    shared::write_full(fd, &write_buf)?;
 
     let write_elapsed = std::time::Instant::now() - write_start;
 
