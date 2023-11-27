@@ -1,6 +1,6 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
-use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
+use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN};
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
@@ -111,6 +111,7 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
     }
 
     // Try to send the responses
+
     connection.state = State::SendResponse;
     do_send_responses(connection).unwrap();
 
@@ -123,6 +124,7 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
 
 enum TryOneRequestError {
     SendResponse(SendResponseError),
+    DoRequest(DoRequestError),
     MessageTooLong,
 }
 
@@ -132,11 +134,18 @@ impl From<SendResponseError> for TryOneRequestError {
     }
 }
 
+impl From<DoRequestError> for TryOneRequestError {
+    fn from(err: DoRequestError) -> Self {
+        TryOneRequestError::DoRequest(err)
+    }
+}
+
 impl fmt::Display for TryOneRequestError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::SendResponse(err) => err.fmt(f),
             Self::MessageTooLong => write!(f, "message too long"),
+            Self::DoRequest(err) => err.fmt(f),
         }
     }
 }
@@ -169,27 +178,94 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
     connection.read_buf_size -= HEADER_LEN + message_len;
     connection.read_buf_consumed += HEADER_LEN + message_len;
 
-    // Got one request
+    // Process the request
 
-    let body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
-
-    println!("client says \"{}\"", String::from_utf8_lossy(body));
-
-    //
-    // Generate the echo response
-    //
-
+    let request_body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
     let write_buf = &mut connection.write_buf[connection.write_buf_size..];
 
-    write_buf[0..HEADER_LEN].copy_from_slice(&(body.len() as u32).to_be_bytes());
-    write_buf[HEADER_LEN..HEADER_LEN + body.len()].copy_from_slice(body);
-    connection.write_buf_size += HEADER_LEN + body.len();
+    let (response_code, written) = do_request(
+        request_body,
+        &mut write_buf[HEADER_LEN + RESPONSE_CODE_LEN..],
+    )?;
+
+    write_buf[0..HEADER_LEN].copy_from_slice(&(written as u32).to_be_bytes());
+    write_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN]
+        .copy_from_slice(&(response_code as u32).to_be_bytes());
+    connection.write_buf_size += HEADER_LEN + RESPONSE_CODE_LEN + written as usize;
+
+    println!(
+        "write buf in try_one_request: {:?}",
+        &write_buf[0..connection.write_buf_size]
+    );
 
     // Continue the outer loop if the request was fully processed
     match connection.state {
         State::ReadRequest => Ok(true),
         _ => Ok(false),
     }
+}
+
+enum DoRequestError {
+    ParseRequest(shared::ParseCommandError),
+}
+
+impl From<shared::ParseCommandError> for DoRequestError {
+    fn from(err: shared::ParseCommandError) -> Self {
+        Self::ParseRequest(err)
+    }
+}
+
+impl fmt::Display for DoRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ParseRequest(err) => err.fmt(f),
+        }
+    }
+}
+
+fn do_request(body: &[u8], write_buf: &mut [u8]) -> Result<(ResponseCode, usize), DoRequestError> {
+    println!("client says {:?}", body);
+
+    let request = match Command::parse(body) {
+        Ok(request) => request,
+        Err(err) => {
+            println!("got error {}", err);
+
+            let resp = "Unknown command";
+            write_buf[0..resp.len()].copy_from_slice(resp.as_bytes());
+
+            return Ok((ResponseCode::Err, resp.len()));
+        }
+    };
+
+    let response_code = match request {
+        Command::Get(args) => do_get(&args)?,
+        Command::Set(args) => do_set(&args)?,
+        Command::Del(args) => do_del(&args)?,
+    };
+
+    let resp = format!("foobar{}", String::from_utf8_lossy(body));
+    write_buf[0..resp.len()].copy_from_slice(resp.as_bytes());
+
+    Ok((response_code, resp.len()))
+}
+
+fn do_get(args: &[&[u8]]) -> Result<ResponseCode, DoRequestError> {
+    println!("do_get, args: {:?}", args);
+
+    Ok(ResponseCode::Ok)
+}
+
+fn do_set(args: &[&[u8]]) -> Result<ResponseCode, DoRequestError> {
+    println!("do_set, args: {:?}", args);
+
+    Ok(ResponseCode::Ok)
+}
+
+fn do_del(args: &[&[u8]]) -> Result<ResponseCode, DoRequestError> {
+    println!("do_del, args: {:?}", args);
+
+    Ok(ResponseCode::Ok)
 }
 
 enum ReadRequestError {

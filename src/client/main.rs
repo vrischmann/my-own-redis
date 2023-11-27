@@ -1,4 +1,4 @@
-use shared::{BUF_LEN, HEADER_LEN, MAX_MSG_LEN};
+use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN};
 use std::fmt;
 
 enum QueryError {
@@ -29,23 +29,64 @@ impl fmt::Display for QueryError {
     }
 }
 
-fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
-    // Write all
+fn write_arg_to_buf(arg: &[u8], buf: &mut Vec<u8>) {
+    buf.extend_from_slice(&(arg.len() as u32).to_be_bytes());
+    buf.extend_from_slice(arg);
+}
+
+fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
+    // Write all commands
 
     let write_start = std::time::Instant::now();
 
-    println!("writing all queries: {:?}", queries);
+    println!("writing all commands: {:?}", commands);
 
-    let mut write_buf = Vec::with_capacity(BUF_LEN * queries.len());
-    let mut write_offset = 0;
-    for query in queries {
-        write_buf.resize(write_buf.len() + (HEADER_LEN + query.len()), 0xaa);
-        write_buf[write_offset..write_offset + HEADER_LEN]
-            .copy_from_slice(&(query.len() as u32).to_be_bytes());
-        write_buf[write_offset + HEADER_LEN..write_offset + (HEADER_LEN + query.len())]
-            .copy_from_slice(query.as_bytes());
-        write_offset += HEADER_LEN + query.len();
+    let mut write_buf = Vec::with_capacity(BUF_LEN);
+
+    write_buf.extend_from_slice(&(0 as u32).to_be_bytes()); // message length; placeholder for now
+
+    for command in commands {
+        match command {
+            Command::Get(args) => {
+                let total_args = (args.len() + 1) as u32;
+
+                write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
+                write_arg_to_buf(b"get", &mut write_buf);
+                for arg in args {
+                    write_arg_to_buf(arg, &mut write_buf);
+                }
+            }
+            Command::Set(args) => {
+                let total_args = (args.len() + 1) as u32;
+
+                write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
+                write_arg_to_buf(b"set", &mut write_buf);
+                for arg in args {
+                    write_arg_to_buf(arg, &mut write_buf);
+                }
+            }
+            Command::Del(args) => {
+                let total_args = (args.len() + 1) as u32;
+
+                write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
+                write_arg_to_buf(b"del", &mut write_buf);
+                for arg in args {
+                    write_arg_to_buf(arg, &mut write_buf);
+                }
+            }
+        }
     }
+
+    // Now we know the message length, write it
+    let written = write_buf.len();
+    write_buf[0..HEADER_LEN].copy_from_slice(&((written - HEADER_LEN) as u32).to_be_bytes());
+
+    // TODO(vincent): do this before allocating
+    if write_buf.len() > MAX_MSG_LEN {
+        return Err(QueryError::MessageTooLong(write_buf.len()));
+    }
+
+    println!("client write buf: {:?}", &write_buf);
 
     shared::write_full(fd, &write_buf)?;
 
@@ -59,15 +100,17 @@ fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
 
     println!("reading all resonses");
 
-    for _ in 0..queries.len() {
+    for _ in 0..commands.len() {
         let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
 
-        shared::read_full(fd, &mut read_buf[0..HEADER_LEN])?;
+        shared::read_full(fd, &mut read_buf[0..HEADER_LEN + RESPONSE_CODE_LEN])?;
+
+        // Decode message length
+
         let message_len = {
-            let header_data = &read_buf[0..HEADER_LEN];
+            let data = &read_buf[0..HEADER_LEN];
 
-            let len = i32::from_be_bytes(header_data.try_into().unwrap());
-
+            let len = u32::from_be_bytes(data.try_into().unwrap());
             len as usize
         };
 
@@ -75,12 +118,17 @@ fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
             return Err(QueryError::MessageTooLong(message_len));
         }
 
-        // Read request body
+        // Decode response code
 
-        shared::read_full(fd, &mut read_buf[HEADER_LEN..HEADER_LEN + message_len])?;
-        let body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
+        let response_code: ResponseCode = {
+            let data = &read_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN];
 
-        println!("server says \"{}\"", String::from_utf8_lossy(body));
+            let tmp = u32::from_be_bytes(data.try_into().unwrap());
+
+            tmp.try_into().unwrap()
+        };
+
+        println!("server says [{}]", response_code);
     }
 
     let read_elapsed = std::time::Instant::now() - read_start;
@@ -88,10 +136,6 @@ fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
     println!("read all responses in {:?}", read_elapsed);
 
     Ok(())
-}
-
-fn query(fd: i32, text: &str) -> Result<(), QueryError> {
-    queries(fd, &[text])
 }
 
 fn main() -> Result<(), shared::MainError> {
@@ -113,11 +157,11 @@ fn main() -> Result<(), shared::MainError> {
 
     // Run multiple queries
 
-    queries(fd, &["hello1", "hello2", "hello3"])?;
+    let command = Command::Set(vec![b"foo", b"bar"]);
 
-    // query(fd, "hello1")?;
-    // query(fd, "hello2")?;
-    // query(fd, "hello3")?;
+    execute_commands(fd, &[command])?;
+
+    println!("closing file descriptor fd={}", fd);
 
     shared::close(fd)?;
 
