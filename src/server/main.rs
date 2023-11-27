@@ -110,6 +110,10 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
         }
     }
 
+    // Try to send the responses
+    connection.state = State::SendResponse;
+    do_send_responses(connection).unwrap();
+
     if let State::ReadRequest = connection.state {
         Ok(true)
     } else {
@@ -181,10 +185,6 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
     write_buf[HEADER_LEN..HEADER_LEN + body.len()].copy_from_slice(body);
     connection.write_buf_size += HEADER_LEN + body.len();
 
-    // Change state
-    connection.state = State::SendResponse;
-    do_send_response(connection)?;
-
     // Continue the outer loop if the request was fully processed
     match connection.state {
         State::ReadRequest => Ok(true),
@@ -242,6 +242,7 @@ fn do_read_request(connection: &mut Connection) -> Result<ConnectionAction, Read
     Ok(ConnectionAction::DoNothing)
 }
 
+#[derive(Debug)]
 enum SendResponseError {
     TryFlushBuffer(TryFlushBufferError),
 }
@@ -260,7 +261,7 @@ impl fmt::Display for SendResponseError {
     }
 }
 
-fn do_send_response(connection: &mut Connection) -> Result<ConnectionAction, SendResponseError> {
+fn do_send_responses(connection: &mut Connection) -> Result<ConnectionAction, SendResponseError> {
     loop {
         if !try_flush_buffer(connection)? {
             break;
@@ -270,6 +271,7 @@ fn do_send_response(connection: &mut Connection) -> Result<ConnectionAction, Sen
     Ok(ConnectionAction::DoNothing)
 }
 
+#[derive(Debug)]
 enum TryFlushBufferError {
     IO(io::Error),
 }
@@ -434,7 +436,7 @@ fn main() -> Result<(), shared::MainError> {
                     Some(conn) => {
                         let action = match conn.state {
                             State::ReadRequest => do_read_request(conn)?,
-                            State::SendResponse => do_send_response(conn)?,
+                            State::SendResponse => do_send_responses(conn)?,
                         };
 
                         match action {
