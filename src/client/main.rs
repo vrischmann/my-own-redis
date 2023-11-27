@@ -113,9 +113,11 @@ fn main() -> Result<(), shared::MainError> {
 
     // Run multiple queries
 
-    query(fd, "hello1")?;
-    query(fd, "hello2")?;
-    query(fd, "hello3")?;
+    queries(fd, &["hello1", "hello2", "hello3"])?;
+
+    // query(fd, "hello1")?;
+    // query(fd, "hello2")?;
+    // query(fd, "hello3")?;
 
     shared::close(fd)?;
 
