@@ -29,41 +29,65 @@ impl fmt::Display for QueryError {
     }
 }
 
-fn query(fd: i32, text: &str) -> Result<(), QueryError> {
-    // Write
+fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
+    // Write all
 
-    let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    let write_start = std::time::Instant::now();
 
-    write_buf[0..HEADER_LEN].copy_from_slice(&(text.len() as u32).to_be_bytes());
-    write_buf[HEADER_LEN..HEADER_LEN + text.len()].copy_from_slice(text.as_bytes());
+    println!("writing all queries: {:?}", queries);
 
-    shared::write_full(fd, &write_buf[0..HEADER_LEN + text.len()])?;
+    for query in queries {
+        let mut write_buf: [u8; BUF_LEN] = [0; BUF_LEN];
 
-    // Read
+        write_buf[0..HEADER_LEN].copy_from_slice(&(query.len() as u32).to_be_bytes());
+        write_buf[HEADER_LEN..HEADER_LEN + query.len()].copy_from_slice(query.as_bytes());
 
-    let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
-
-    shared::read_full(fd, &mut read_buf[0..HEADER_LEN])?;
-    let message_len = {
-        let header_data = &read_buf[0..HEADER_LEN];
-
-        let len = i32::from_be_bytes(header_data.try_into().unwrap());
-
-        len as usize
-    };
-
-    if message_len > MAX_MSG_LEN {
-        return Err(QueryError::MessageTooLong(message_len));
+        shared::write_full(fd, &write_buf[0..HEADER_LEN + query.len()])?;
     }
 
-    // Read request body
+    let write_elapsed = std::time::Instant::now() - write_start;
 
-    shared::read_full(fd, &mut read_buf[HEADER_LEN..HEADER_LEN + message_len])?;
-    let body = &read_buf[HEADER_LEN..];
+    println!("wrote all queries in {:?}", write_elapsed);
 
-    println!("server says \"{}\"", String::from_utf8_lossy(body));
+    // Read all
+
+    let read_start = std::time::Instant::now();
+
+    println!("reading all resonses");
+
+    for _ in 0..queries.len() {
+        let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+
+        shared::read_full(fd, &mut read_buf[0..HEADER_LEN])?;
+        let message_len = {
+            let header_data = &read_buf[0..HEADER_LEN];
+
+            let len = i32::from_be_bytes(header_data.try_into().unwrap());
+
+            len as usize
+        };
+
+        if message_len > MAX_MSG_LEN {
+            return Err(QueryError::MessageTooLong(message_len));
+        }
+
+        // Read request body
+
+        shared::read_full(fd, &mut read_buf[HEADER_LEN..HEADER_LEN + message_len])?;
+        let body = &read_buf[HEADER_LEN..];
+
+        println!("server says \"{}\"", String::from_utf8_lossy(body));
+    }
+
+    let read_elapsed = std::time::Instant::now() - read_start;
+
+    println!("read all responses in {:?}", read_elapsed);
 
     Ok(())
+}
+
+fn query(fd: i32, text: &str) -> Result<(), QueryError> {
+    queries(fd, &[text])
 }
 
 fn main() -> Result<(), shared::MainError> {
