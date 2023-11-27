@@ -161,6 +161,10 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
         return Ok(false);
     }
 
+    // "consume" the bytes of the current request
+    connection.read_buf_size -= HEADER_LEN + message_len;
+    connection.read_buf_consumed += HEADER_LEN + message_len;
+
     // Got one request
 
     let body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
@@ -171,13 +175,11 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
     // Generate the echo response
     //
 
-    connection.write_buf[0..HEADER_LEN].copy_from_slice(&(body.len() as u32).to_be_bytes());
-    connection.write_buf[HEADER_LEN..HEADER_LEN + body.len()].copy_from_slice(body);
-    connection.write_buf_size = HEADER_LEN + body.len();
+    let write_buf = &mut connection.write_buf[connection.write_buf_size..];
 
-    // "consume" the bytes of the current request
-    connection.read_buf_size -= HEADER_LEN + message_len;
-    connection.read_buf_consumed += HEADER_LEN + message_len;
+    write_buf[0..HEADER_LEN].copy_from_slice(&(body.len() as u32).to_be_bytes());
+    write_buf[HEADER_LEN..HEADER_LEN + body.len()].copy_from_slice(body);
+    connection.write_buf_size += HEADER_LEN + body.len();
 
     // Change state
     connection.state = State::SendResponse;
