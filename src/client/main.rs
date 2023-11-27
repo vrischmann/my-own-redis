@@ -78,7 +78,7 @@ fn queries(fd: i32, queries: &[&str]) -> Result<(), QueryError> {
         // Read request body
 
         shared::read_full(fd, &mut read_buf[HEADER_LEN..HEADER_LEN + message_len])?;
-        let body = &read_buf[HEADER_LEN..];
+        let body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
 
         println!("server says \"{}\"", String::from_utf8_lossy(body));
     }
