@@ -17,6 +17,7 @@ struct Connection {
     state: State,
 
     read_buf_size: usize,
+    read_buf_consumed: usize,
     read_buf: [u8; BUF_LEN],
 
     write_buf_size: usize,
@@ -54,6 +55,30 @@ impl fmt::Display for TryFillBufferError {
 
 fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferError> {
     assert!(connection.read_buf_size < connection.read_buf.len());
+
+    // Remove the already processed requests from the buffer, if any
+
+    if connection.read_buf_size > 0 {
+        let remaining = connection.read_buf_size - connection.read_buf_consumed;
+        if remaining > 0 {
+            let next_request_start = connection.read_buf_consumed;
+
+            println!(
+                "move bytes from {:?} to the start of the read buf",
+                next_request_start..next_request_start + remaining
+            );
+
+            connection
+                .read_buf
+                .copy_within(next_request_start..next_request_start + remaining, 0);
+
+            connection.read_buf_size = remaining;
+        }
+    }
+
+    connection.read_buf_consumed = 0;
+
+    //
 
     let data = loop {
         let read_buf = &mut connection.read_buf[connection.read_buf_size..];
@@ -119,8 +144,10 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
         return Ok(false);
     }
 
+    let read_buf = &connection.read_buf[connection.read_buf_consumed..];
+
     let message_len = {
-        let header_data = &connection.read_buf[0..HEADER_LEN];
+        let header_data = &read_buf[0..HEADER_LEN];
         let len = u32::from_be_bytes(header_data.try_into().unwrap());
 
         len as usize
@@ -136,7 +163,7 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
 
     // Got one request
 
-    let body = &connection.read_buf[HEADER_LEN..HEADER_LEN + message_len];
+    let body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
 
     println!("client says \"{}\"", String::from_utf8_lossy(body));
 
@@ -148,15 +175,9 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
     connection.write_buf[HEADER_LEN..HEADER_LEN + body.len()].copy_from_slice(body);
     connection.write_buf_size = HEADER_LEN + body.len();
 
-    // Remove the request from the buffer
-    let remaining = connection.read_buf_size - (HEADER_LEN + message_len);
-    if remaining > 0 {
-        let next_request_start = HEADER_LEN + message_len;
-        connection
-            .read_buf
-            .copy_within(next_request_start..next_request_start + remaining, 0);
-    }
-    connection.read_buf_size = remaining;
+    // "consume" the bytes of the current request
+    connection.read_buf_size -= HEADER_LEN + message_len;
+    connection.read_buf_consumed += HEADER_LEN + message_len;
 
     // Change state
     connection.state = State::SendResponse;
@@ -318,6 +339,7 @@ fn accept_new_connection(connections: &mut HashMap<i32, Connection>, fd: i32) ->
         fd: conn_fd,
         state: State::ReadRequest,
         read_buf_size: 0,
+        read_buf_consumed: 0,
         read_buf: [0; BUF_LEN],
         write_buf_size: 0,
         write_buf_sent: 0,
@@ -396,6 +418,7 @@ fn main() -> Result<(), shared::MainError> {
         }
 
         // Process active connections
+
         for pfd in &poll_args {
             if pfd.revents <= 0 {
                 continue;
