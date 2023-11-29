@@ -128,7 +128,22 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
             tmp.try_into().unwrap()
         };
 
-        println!("server says [{}]", response_code);
+        // Body
+
+        if (message_len - RESPONSE_CODE_LEN) > 0 {
+            shared::read_full(fd, &mut read_buf[0..message_len])?;
+
+            let data = &read_buf[0..message_len];
+
+            println!(
+                "server says [{}]: {} (len={})",
+                response_code,
+                String::from_utf8_lossy(data),
+                data.len(),
+            );
+        } else {
+            println!("server says [{}]", response_code);
+        }
     }
 
     let read_elapsed = std::time::Instant::now() - read_start;
