@@ -244,7 +244,7 @@ fn do_request(body: &[u8], write_buf: &mut [u8]) -> Result<(ResponseCode, usize)
         Command::Del(args) => do_del(&args)?,
     };
 
-    let resp = format!("foobar{}", String::from_utf8_lossy(body));
+    let resp = format!("foobar{}", body.len());
     write_buf[0..resp.len()].copy_from_slice(resp.as_bytes());
 
     Ok((response_code, resp.len()))
