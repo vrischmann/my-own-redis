@@ -1,4 +1,6 @@
-use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN};
+use shared::{
+    Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
+};
 use std::fmt;
 
 enum QueryError {
@@ -29,8 +31,10 @@ impl fmt::Display for QueryError {
     }
 }
 
-fn write_arg_to_buf(arg: &[u8], buf: &mut Vec<u8>) {
-    buf.extend_from_slice(&(arg.len() as u32).to_be_bytes());
+fn encode_string(arg: &[u8], buf: &mut Vec<u8>) {
+    let len_bytes = &(arg.len() as u32).to_be_bytes();
+
+    buf.extend_from_slice(len_bytes);
     buf.extend_from_slice(arg);
 }
 
@@ -51,27 +55,27 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
                 let total_args = (args.len() + 1) as u32;
 
                 write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
-                write_arg_to_buf(b"get", &mut write_buf);
+                encode_string(b"get", &mut write_buf);
                 for arg in args {
-                    write_arg_to_buf(arg, &mut write_buf);
+                    encode_string(arg, &mut write_buf);
                 }
             }
             Command::Set(args) => {
                 let total_args = (args.len() + 1) as u32;
 
                 write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
-                write_arg_to_buf(b"set", &mut write_buf);
+                encode_string(b"set", &mut write_buf);
                 for arg in args {
-                    write_arg_to_buf(arg, &mut write_buf);
+                    encode_string(arg, &mut write_buf);
                 }
             }
             Command::Del(args) => {
                 let total_args = (args.len() + 1) as u32;
 
                 write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
-                write_arg_to_buf(b"del", &mut write_buf);
+                encode_string(b"del", &mut write_buf);
                 for arg in args {
-                    write_arg_to_buf(arg, &mut write_buf);
+                    encode_string(arg, &mut write_buf);
                 }
             }
         }
@@ -98,7 +102,7 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
 
     let read_start = std::time::Instant::now();
 
-    println!("reading all resonses");
+    println!("reading all responses");
 
     for _ in 0..commands.len() {
         let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
@@ -135,10 +139,13 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
 
             let data = &read_buf[0..message_len];
 
+            let body_length = u32::from_be_bytes(data[0..STRING_LEN].try_into().unwrap());
+            let body = &data[STRING_LEN..(STRING_LEN + body_length as usize)];
+
             println!(
                 "server says [{}]: {} (len={})",
                 response_code,
-                String::from_utf8_lossy(data),
+                String::from_utf8_lossy(body),
                 data.len(),
             );
         } else {
@@ -154,6 +161,30 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
 }
 
 fn main() -> Result<(), shared::MainError> {
+    // Parse the command
+
+    let mut args: Vec<String> = std::env::args().collect();
+    if args.len() < 1 {
+        println!("Usage: my-own-redis <command> [<arg> ...]");
+        std::process::exit(1);
+    }
+
+    // Remove the binary name
+    args.remove(0);
+
+    let command_str = args.remove(0);
+    let remaining_args = args.iter().map(|v| v.as_ref()).collect();
+
+    let command = match command_str.as_str() {
+        "get" => Command::Get(remaining_args),
+        "set" => Command::Set(remaining_args),
+        "del" => Command::Del(remaining_args),
+        _ => {
+            println!("Usage: my-own-redis <command> [<arg> ...]");
+            std::process::exit(1);
+        }
+    };
+
     // Create socket
 
     let fd = shared::create_socket()?;
@@ -171,8 +202,6 @@ fn main() -> Result<(), shared::MainError> {
     println!("connected to 127.0.0.1:1234");
 
     // Run multiple queries
-
-    let command = Command::Set(vec![b"foo", b"bar"]);
 
     execute_commands(fd, &[command])?;
 

@@ -1,10 +1,16 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
-use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN};
+use shared::{
+    Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
+};
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
 use std::mem;
+
+struct Context {
+    data: HashMap<String, String>,
+}
 
 #[derive(Debug)]
 enum State {
@@ -53,7 +59,10 @@ impl fmt::Display for TryFillBufferError {
     }
 }
 
-fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferError> {
+fn try_fill_buffer(
+    context: &mut Context,
+    connection: &mut Connection,
+) -> Result<bool, TryFillBufferError> {
     assert!(connection.read_buf_size < connection.read_buf.len());
 
     // Remove the already processed requests from the buffer, if any
@@ -105,7 +114,7 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
 
     // Try to process requests
     loop {
-        if !try_one_request(connection)? {
+        if !try_one_request(context, connection)? {
             break;
         }
     }
@@ -113,7 +122,7 @@ fn try_fill_buffer(connection: &mut Connection) -> Result<bool, TryFillBufferErr
     // Try to send the responses
 
     connection.state = State::SendResponse;
-    do_send_responses(connection).unwrap();
+    do_send_responses(context, connection).unwrap();
 
     if let State::ReadRequest = connection.state {
         Ok(true)
@@ -150,7 +159,10 @@ impl fmt::Display for TryOneRequestError {
     }
 }
 
-fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestError> {
+fn try_one_request(
+    context: &mut Context,
+    connection: &mut Connection,
+) -> Result<bool, TryOneRequestError> {
     // Parse the request
 
     if connection.read_buf_size < HEADER_LEN {
@@ -184,14 +196,17 @@ fn try_one_request(connection: &mut Connection) -> Result<bool, TryOneRequestErr
     let write_buf = &mut connection.write_buf[connection.write_buf_size..];
 
     let (response_code, written) = do_request(
+        context,
         request_body,
         &mut write_buf[HEADER_LEN + RESPONSE_CODE_LEN..],
     )?;
 
+    let written = RESPONSE_CODE_LEN + written;
+
     write_buf[0..HEADER_LEN].copy_from_slice(&(written as u32).to_be_bytes());
     write_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN]
         .copy_from_slice(&(response_code as u32).to_be_bytes());
-    connection.write_buf_size += HEADER_LEN + RESPONSE_CODE_LEN + written as usize;
+    connection.write_buf_size += HEADER_LEN + written as usize;
 
     println!(
         "write buf in try_one_request: {:?}",
@@ -223,7 +238,11 @@ impl fmt::Display for DoRequestError {
     }
 }
 
-fn do_request(body: &[u8], write_buf: &mut [u8]) -> Result<(ResponseCode, usize), DoRequestError> {
+fn do_request(
+    context: &mut Context,
+    body: &[u8],
+    write_buf: &mut [u8],
+) -> Result<(ResponseCode, usize), DoRequestError> {
     println!("client says {:?}", body);
 
     let request = match Command::parse(body) {
@@ -232,40 +251,93 @@ fn do_request(body: &[u8], write_buf: &mut [u8]) -> Result<(ResponseCode, usize)
             println!("got error {}", err);
 
             let resp = "Unknown command";
-            write_buf[0..resp.len()].copy_from_slice(resp.as_bytes());
+
+            write_buf[0..STRING_LEN].copy_from_slice(&(resp.len() as u32).to_be_bytes());
+            write_buf[STRING_LEN..STRING_LEN + resp.len()].copy_from_slice(resp.as_bytes());
 
             return Ok((ResponseCode::Err, resp.len()));
         }
     };
 
-    let response_code = match request {
-        Command::Get(args) => do_get(&args)?,
-        Command::Set(args) => do_set(&args)?,
-        Command::Del(args) => do_del(&args)?,
+    let mut response_buf: [u8; MAX_MSG_LEN - RESPONSE_CODE_LEN] =
+        [0; MAX_MSG_LEN - RESPONSE_CODE_LEN];
+
+    let (response_code, response) = match request {
+        Command::Get(args) => do_get(context, &args, &mut response_buf)?,
+        Command::Set(args) => do_set(context, &args, &mut response_buf)?,
+        Command::Del(args) => do_del(context, &args, &mut response_buf)?,
     };
 
-    let resp = format!("foobar{}", body.len());
-    write_buf[0..resp.len()].copy_from_slice(resp.as_bytes());
+    let written = if response.len() > 0 {
+        write_buf[0..STRING_LEN].copy_from_slice(&(response.len() as u32).to_be_bytes());
+        write_buf[STRING_LEN..STRING_LEN + response.len()].copy_from_slice(response);
 
-    Ok((response_code, resp.len()))
+        STRING_LEN + response.len()
+    } else {
+        0
+    };
+
+    println!("do_request; write buf: {:?}", &write_buf[0..written]);
+
+    Ok((response_code, written))
 }
 
-fn do_get(args: &[&[u8]]) -> Result<ResponseCode, DoRequestError> {
-    println!("do_get, args: {:?}", args);
+fn do_get<'b>(
+    context: &mut Context,
+    args: &[&[u8]],
+    buf: &'b mut [u8],
+) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
+    println!("do_get; args: {:?}", args);
 
-    Ok(ResponseCode::Ok)
+    let key = match std::str::from_utf8(args[0]) {
+        Ok(key) => key,
+        Err(_) => {
+            let resp = "invalid key";
+            buf[0..resp.len()].copy_from_slice(resp.as_bytes());
+
+            let response = &buf[0..resp.len()];
+
+            return Ok((ResponseCode::Err, response));
+        }
+    };
+
+    match context.data.get(key) {
+        None => {
+            println!("do_get; no value for key {}", key);
+
+            Ok((ResponseCode::Nx, b""))
+        }
+        Some(value) => {
+            println!("do_get; value for key {}: {}", key, value);
+
+            assert!(value.len() < buf.len());
+
+            buf[0..value.len()].copy_from_slice(value.as_bytes());
+            let response = &buf[0..buf.len()];
+
+            Ok((ResponseCode::Ok, response))
+        }
+    }
 }
 
-fn do_set(args: &[&[u8]]) -> Result<ResponseCode, DoRequestError> {
+fn do_set<'b>(
+    context: &mut Context,
+    args: &[&[u8]],
+    response: &'b mut [u8],
+) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
     println!("do_set, args: {:?}", args);
 
-    Ok(ResponseCode::Ok)
+    Ok((ResponseCode::Ok, b""))
 }
 
-fn do_del(args: &[&[u8]]) -> Result<ResponseCode, DoRequestError> {
+fn do_del<'b>(
+    context: &mut Context,
+    args: &[&[u8]],
+    response: &'b mut [u8],
+) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
     println!("do_del, args: {:?}", args);
 
-    Ok(ResponseCode::Ok)
+    Ok((ResponseCode::Ok, b""))
 }
 
 enum ReadRequestError {
@@ -291,9 +363,12 @@ enum ConnectionAction {
     Delete,
 }
 
-fn do_read_request(connection: &mut Connection) -> Result<ConnectionAction, ReadRequestError> {
+fn do_read_request(
+    context: &mut Context,
+    connection: &mut Connection,
+) -> Result<ConnectionAction, ReadRequestError> {
     loop {
-        let result = match try_fill_buffer(connection) {
+        let result = match try_fill_buffer(context, connection) {
             Err(err) => {
                 match err {
                     TryFillBufferError::EndOfStream => {
@@ -337,9 +412,12 @@ impl fmt::Display for SendResponseError {
     }
 }
 
-fn do_send_responses(connection: &mut Connection) -> Result<ConnectionAction, SendResponseError> {
+fn do_send_responses(
+    context: &mut Context,
+    connection: &mut Connection,
+) -> Result<ConnectionAction, SendResponseError> {
     loop {
-        if !try_flush_buffer(connection)? {
+        if !try_flush_buffer(context, connection)? {
             break;
         }
     }
@@ -366,7 +444,10 @@ impl fmt::Display for TryFlushBufferError {
     }
 }
 
-fn try_flush_buffer(connection: &mut Connection) -> Result<bool, TryFlushBufferError> {
+fn try_flush_buffer(
+    context: &mut Context,
+    connection: &mut Connection,
+) -> Result<bool, TryFlushBufferError> {
     let written = loop {
         let write_buf =
             &mut connection.write_buf[connection.write_buf_sent..connection.write_buf_size];
@@ -456,6 +537,10 @@ fn main() -> Result<(), shared::MainError> {
 
     // Event loop
 
+    let mut context = Context {
+        data: HashMap::new(),
+    };
+
     let mut connections: HashMap<i32, Connection> = HashMap::new();
 
     let mut poll_args: Vec<libc::pollfd> = Vec::new();
@@ -511,8 +596,8 @@ fn main() -> Result<(), shared::MainError> {
                 match connections.get_mut(&pfd.fd) {
                     Some(conn) => {
                         let action = match conn.state {
-                            State::ReadRequest => do_read_request(conn)?,
-                            State::SendResponse => do_send_responses(conn)?,
+                            State::ReadRequest => do_read_request(&mut context, conn)?,
+                            State::SendResponse => do_send_responses(&mut context, conn)?,
                         };
 
                         match action {
