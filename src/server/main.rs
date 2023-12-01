@@ -44,6 +44,11 @@ impl ConnectionBuffer {
         &self.data[self.read_head..self.write_head]
     }
 
+    fn update_write_head(&mut self, n: usize) {
+        self.write_head += n;
+        assert!(self.write_head < self.data.len());
+    }
+
     fn update_read_head(&mut self, n: usize) {
         self.read_head += n
     }
@@ -71,10 +76,7 @@ struct Connection {
     state: State,
 
     read_buf: ConnectionBuffer,
-
-    write_buf_size: usize,
-    write_buf_sent: usize,
-    write_buf: [u8; BUF_LEN],
+    write_buf: ConnectionBuffer,
 }
 
 enum TryFillBufferError {
@@ -114,15 +116,14 @@ fn try_fill_buffer(
 
     //
 
-    let data = loop {
+    let read = loop {
         let buf = connection.read_buf.writable();
-
         match shared::read(connection.fd, buf) {
             Ok(data) => {
                 if data.is_empty() {
                     return Err(TryFillBufferError::EndOfStream);
                 } else {
-                    break data;
+                    break data.len();
                 }
             }
             Err(err) => {
@@ -134,8 +135,7 @@ fn try_fill_buffer(
         }
     };
 
-    connection.read_buf.write_head += data.len();
-    assert!(connection.read_buf.write_head < connection.read_buf.data.len());
+    connection.read_buf.update_write_head(read);
 
     // Try to process requests
     loop {
@@ -229,7 +229,7 @@ fn try_one_request(
 
     // Process the request
     {
-        let write_buf = &mut connection.write_buf[connection.write_buf_size..];
+        let write_buf = connection.write_buf.writable();
 
         let (response_code, written) = do_request(
             context,
@@ -242,11 +242,13 @@ fn try_one_request(
         write_buf[0..HEADER_LEN].copy_from_slice(&(written as u32).to_be_bytes());
         write_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN]
             .copy_from_slice(&(response_code as u32).to_be_bytes());
-        connection.write_buf_size += HEADER_LEN + written as usize;
+        connection
+            .write_buf
+            .update_write_head(HEADER_LEN + written as usize);
 
         println!(
             "write buf in try_one_request: {:?}",
-            &write_buf[0..connection.write_buf_size]
+            connection.write_buf.readable()
         );
     }
 
@@ -506,8 +508,7 @@ fn try_flush_buffer(
     connection: &mut Connection,
 ) -> Result<bool, TryFlushBufferError> {
     let written = loop {
-        let write_buf =
-            &mut connection.write_buf[connection.write_buf_sent..connection.write_buf_size];
+        let write_buf = connection.write_buf.readable();
 
         match shared::write(connection.fd, write_buf) {
             Ok(n) => break n,
@@ -520,15 +521,14 @@ fn try_flush_buffer(
         }
     };
 
-    connection.write_buf_sent += written;
-    assert!(connection.write_buf_sent <= connection.write_buf_size);
+    connection.write_buf.update_read_head(written);
 
-    if connection.write_buf_sent == connection.write_buf_size {
+    if connection.write_buf.read_head == connection.write_buf.write_head {
         // Response was fully sent, change state back
 
         connection.state = State::ReadRequest;
-        connection.write_buf_size = 0;
-        connection.write_buf_sent = 0;
+        connection.write_buf.read_head = 0;
+        connection.write_buf.write_head = 0;
 
         return Ok(false);
     }
@@ -557,9 +557,7 @@ fn accept_new_connection(connections: &mut HashMap<i32, Connection>, fd: i32) ->
         fd: conn_fd,
         state: State::ReadRequest,
         read_buf: ConnectionBuffer::new(),
-        write_buf_size: 0,
-        write_buf_sent: 0,
-        write_buf: [0; BUF_LEN],
+        write_buf: ConnectionBuffer::new(),
     };
     connections.insert(conn_fd, connection);
 
