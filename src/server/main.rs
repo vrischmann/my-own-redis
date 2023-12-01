@@ -427,6 +427,42 @@ fn do_set(
 ) -> Result<(), DoRequestError> {
     println!("do_set, args: {:?}", args);
 
+    if args.len() != 2 {
+        let resp = "no key and value provided";
+
+        response_writer.set_response_code(ResponseCode::Err);
+        response_writer.push_string(resp);
+
+        return Ok(());
+    }
+
+    // TODO(vincent): avoid cloning ?
+    let key = match String::from_utf8(args[0].to_vec()) {
+        Ok(key) => key,
+        Err(_) => {
+            let resp = "invalid key";
+
+            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_string(resp);
+
+            return Ok(());
+        }
+    };
+
+    let value = match String::from_utf8(args[1].to_vec()) {
+        Ok(value) => value,
+        Err(_) => {
+            let resp = "invalid key";
+
+            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_string(resp);
+
+            return Ok(());
+        }
+    };
+
+    context.data.insert(key, value);
+
     response_writer.set_response_code(ResponseCode::Ok);
 
     Ok(())
@@ -438,6 +474,30 @@ fn do_del<'b>(
     response_writer: &mut ResponseWriter,
 ) -> Result<(), DoRequestError> {
     println!("do_del, args: {:?}", args);
+
+    if args.len() != 1 {
+        let resp = "no key provided";
+
+        response_writer.set_response_code(ResponseCode::Err);
+        response_writer.push_string(resp);
+
+        return Ok(());
+    }
+
+    // TODO(vincent): avoid cloning ?
+    let key = match std::str::from_utf8(args[0]) {
+        Ok(key) => key,
+        Err(_) => {
+            let resp = "invalid key";
+
+            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_string(resp);
+
+            return Ok(());
+        }
+    };
+
+    context.data.remove(key);
 
     response_writer.set_response_code(ResponseCode::Ok);
 
