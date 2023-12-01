@@ -298,14 +298,7 @@ fn try_one_request(
 
     // Process the request
     {
-        let written = {
-            let mut response_writer = ResponseWriter::new(connection.write_buf.writable());
-
-            do_request(context, request.body, &mut response_writer)?;
-
-            response_writer.finish();
-            response_writer.written()
-        };
+        let written = do_request(context, request.body, connection.write_buf.writable())?;
 
         connection.write_buf.update_write_head(written);
 
@@ -348,9 +341,11 @@ impl fmt::Display for DoRequestError {
 fn do_request(
     context: &mut Context,
     body: &[u8],
-    response_writer: &mut ResponseWriter,
-) -> Result<(), DoRequestError> {
+    write_buf: &mut [u8],
+) -> Result<usize, DoRequestError> {
     println!("client says {:?}", body);
+
+    let mut response_writer = ResponseWriter::new(write_buf);
 
     let request = match Command::parse(body) {
         Ok(request) => request,
@@ -361,8 +356,9 @@ fn do_request(
 
             response_writer.set_response_code(ResponseCode::Err);
             response_writer.push_string(resp);
+            response_writer.finish();
 
-            return Ok(());
+            return Ok(response_writer.written());
         }
     };
 
@@ -379,8 +375,9 @@ fn do_request(
     if response.len() > 0 {
         response_writer.push_string(response);
     }
+    response_writer.finish();
 
-    Ok(())
+    Ok(response_writer.written())
 }
 
 fn do_get<'b>(
