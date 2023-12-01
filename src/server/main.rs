@@ -82,13 +82,6 @@ impl ConnectionBuffer {
         &mut self.data[self.write_head..]
     }
 
-    // fn push(&mut self, data: &mut [u8]) {
-    //     let buf = self.writable();
-    //     buf.copy_from_slice(data);
-    //
-    //     self.update_write_head(data.len());
-    // }
-
     fn readable(&self) -> &[u8] {
         &self.data[self.read_head..self.write_head]
     }
