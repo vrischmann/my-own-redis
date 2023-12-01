@@ -18,6 +18,50 @@ enum State {
     SendResponse,
 }
 
+struct Request<'a> {
+    body: &'a [u8],
+}
+
+enum RequestParseError {
+    NotEnoughData,
+    MessageTooLong,
+}
+
+impl fmt::Display for RequestParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::NotEnoughData => write!(f, "not enough data"),
+            Self::MessageTooLong => write!(f, "message too long"),
+        }
+    }
+}
+
+impl<'a> Request<'a> {
+    fn parse(buf: &'a [u8]) -> Result<Self, RequestParseError> {
+        if buf.len() < HEADER_LEN {
+            return Err(RequestParseError::NotEnoughData);
+        }
+
+        let message_len = {
+            let header_data = &buf[0..HEADER_LEN];
+            let len = u32::from_be_bytes(header_data.try_into().unwrap());
+
+            len as usize
+        };
+        if message_len > MAX_MSG_LEN {
+            return Err(RequestParseError::MessageTooLong);
+        }
+
+        if buf.len() < HEADER_LEN + message_len {
+            return Err(RequestParseError::NotEnoughData);
+        }
+
+        Ok(Self {
+            body: &buf[HEADER_LEN..HEADER_LEN + message_len],
+        })
+    }
+}
+
 struct ResponseWriter<'a> {
     buf: &'a mut [u8],
     pos: usize,
@@ -201,7 +245,7 @@ fn try_fill_buffer(
 enum TryOneRequestError {
     SendResponse(SendResponseError),
     DoRequest(DoRequestError),
-    MessageTooLong,
+    RequestParse(RequestParseError),
 }
 
 impl From<SendResponseError> for TryOneRequestError {
@@ -216,12 +260,18 @@ impl From<DoRequestError> for TryOneRequestError {
     }
 }
 
+impl From<RequestParseError> for TryOneRequestError {
+    fn from(err: RequestParseError) -> Self {
+        TryOneRequestError::RequestParse(err)
+    }
+}
+
 impl fmt::Display for TryOneRequestError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::SendResponse(err) => err.fmt(f),
-            Self::MessageTooLong => write!(f, "message too long"),
             Self::DoRequest(err) => err.fmt(f),
+            Self::RequestParse(err) => err.fmt(f),
         }
     }
 }
@@ -232,35 +282,18 @@ fn try_one_request(
 ) -> Result<bool, TryOneRequestError> {
     // Parse the request
 
-    let request_body = {
-        let buf = connection.read_buf.readable();
-
-        if buf.len() < HEADER_LEN {
-            return Ok(false);
-        }
-
-        let message_len = {
-            let header_data = &buf[0..HEADER_LEN];
-            let len = u32::from_be_bytes(header_data.try_into().unwrap());
-
-            len as usize
-        };
-        if message_len > MAX_MSG_LEN {
-            return Err(TryOneRequestError::MessageTooLong);
-        }
-
-        if buf.len() < HEADER_LEN + message_len {
-            // Not enough data in the buffer
-            return Ok(false);
-        }
-
-        &buf[HEADER_LEN..HEADER_LEN + message_len]
+    let request = match Request::parse(connection.read_buf.readable()) {
+        Ok(request) => request,
+        Err(err) => match err {
+            RequestParseError::MessageTooLong => return Err(err.into()),
+            RequestParseError::NotEnoughData => return Ok(false),
+        },
     };
 
     println!(
         "request body: {:?} ({})",
-        request_body,
-        String::from_utf8_lossy(request_body),
+        request.body,
+        String::from_utf8_lossy(request.body),
     );
 
     // Process the request
@@ -268,7 +301,7 @@ fn try_one_request(
         let written = {
             let mut response_writer = ResponseWriter::new(connection.write_buf.writable());
 
-            do_request(context, request_body, &mut response_writer)?;
+            do_request(context, request.body, &mut response_writer)?;
 
             response_writer.finish();
             response_writer.written()
@@ -285,7 +318,7 @@ fn try_one_request(
     // "consume" the bytes of the current request
     connection
         .read_buf
-        .update_read_head(HEADER_LEN + request_body.len());
+        .update_read_head(HEADER_LEN + request.body.len());
 
     // Continue the outer loop if the request was fully processed
     match connection.state {
