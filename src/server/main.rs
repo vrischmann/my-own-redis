@@ -89,9 +89,10 @@ impl<'a> ResponseWriter<'a> {
     }
 
     fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
+        let bytes = value.as_ref();
         let buf = &mut self.buf[self.pos..];
 
-        let bytes = value.as_ref();
+        assert!(bytes.len() < buf.len());
 
         buf[0..STRING_LEN].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
         buf[STRING_LEN..STRING_LEN + bytes.len()].copy_from_slice(bytes);
@@ -356,55 +357,47 @@ fn do_request(
 
             response_writer.set_response_code(ResponseCode::Err);
             response_writer.push_string(resp);
-            response_writer.finish();
 
+            response_writer.finish();
             return Ok(response_writer.written());
         }
     };
 
-    let mut response_buf: [u8; MAX_MSG_LEN - RESPONSE_CODE_LEN] =
-        [0; MAX_MSG_LEN - RESPONSE_CODE_LEN];
-
-    let (response_code, response) = match request {
-        Command::Get(args) => do_get(context, &args, &mut response_buf)?,
-        Command::Set(args) => do_set(context, &args, &mut response_buf)?,
-        Command::Del(args) => do_del(context, &args, &mut response_buf)?,
-    };
-
-    response_writer.set_response_code(response_code);
-    if response.len() > 0 {
-        response_writer.push_string(response);
+    match request {
+        Command::Get(args) => do_get(context, &args, &mut response_writer)?,
+        Command::Set(args) => do_set(context, &args, &mut response_writer)?,
+        Command::Del(args) => do_del(context, &args, &mut response_writer)?,
     }
-    response_writer.finish();
 
+    response_writer.finish();
     Ok(response_writer.written())
 }
 
-fn do_get<'b>(
+fn do_get(
     context: &mut Context,
     args: &[&[u8]],
-    buf: &'b mut [u8],
-) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
+    response_writer: &mut ResponseWriter,
+) -> Result<(), DoRequestError> {
     println!("do_get; args: {:?}", args);
 
     if args.len() <= 0 {
         let resp = "no key provided";
-        buf[0..resp.len()].copy_from_slice(resp.as_bytes());
 
-        let response = &buf[0..resp.len()];
+        response_writer.set_response_code(ResponseCode::Err);
+        response_writer.push_string(resp);
 
-        return Ok((ResponseCode::Err, response));
+        return Ok(());
     }
 
     let key = match std::str::from_utf8(args[0]) {
         Ok(key) => key,
         Err(_) => {
             let resp = "invalid key";
-            buf[0..resp.len()].copy_from_slice(resp.as_bytes());
 
-            let response = &buf[0..resp.len()];
+            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_string(resp);
 
-            return Ok((ResponseCode::Err, response));
+            return Ok(());
         }
     };
 
@@ -412,39 +405,43 @@ fn do_get<'b>(
         None => {
             println!("do_get; no value for key {}", key);
 
-            Ok((ResponseCode::Nx, b""))
+            response_writer.set_response_code(ResponseCode::Nx);
+
+            Ok(())
         }
         Some(value) => {
             println!("do_get; value for key {}: {}", key, value);
 
-            assert!(value.len() < buf.len());
+            response_writer.set_response_code(ResponseCode::Ok);
+            response_writer.push_string(value);
 
-            buf[0..value.len()].copy_from_slice(value.as_bytes());
-            let response = &buf[0..buf.len()];
-
-            Ok((ResponseCode::Ok, response))
+            Ok(())
         }
     }
 }
 
-fn do_set<'b>(
+fn do_set(
     context: &mut Context,
     args: &[&[u8]],
-    response: &'b mut [u8],
-) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
+    response_writer: &mut ResponseWriter,
+) -> Result<(), DoRequestError> {
     println!("do_set, args: {:?}", args);
 
-    Ok((ResponseCode::Ok, b""))
+    response_writer.set_response_code(ResponseCode::Ok);
+
+    Ok(())
 }
 
 fn do_del<'b>(
     context: &mut Context,
     args: &[&[u8]],
-    response: &'b mut [u8],
-) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
+    response_writer: &mut ResponseWriter,
+) -> Result<(), DoRequestError> {
     println!("do_del, args: {:?}", args);
 
-    Ok((ResponseCode::Ok, b""))
+    response_writer.set_response_code(ResponseCode::Ok);
+
+    Ok(())
 }
 
 enum ReadRequestError {
