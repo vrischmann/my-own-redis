@@ -328,19 +328,19 @@ fn try_one_request(
 }
 
 enum DoRequestError {
-    ParseRequest(shared::ParseCommandError),
+    ParseCommand(shared::ParseCommandError),
 }
 
 impl From<shared::ParseCommandError> for DoRequestError {
     fn from(err: shared::ParseCommandError) -> Self {
-        Self::ParseRequest(err)
+        Self::ParseCommand(err)
     }
 }
 
 impl fmt::Display for DoRequestError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::ParseRequest(err) => err.fmt(f),
+            Self::ParseCommand(err) => err.fmt(f),
         }
     }
 }
