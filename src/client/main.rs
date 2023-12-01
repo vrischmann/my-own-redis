@@ -134,10 +134,11 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
 
         // Body
 
-        if (message_len - RESPONSE_CODE_LEN) > 0 {
-            shared::read_full(fd, &mut read_buf[0..message_len])?;
+        let string_len = message_len - RESPONSE_CODE_LEN;
+        if string_len > 0 {
+            shared::read_full(fd, &mut read_buf[0..string_len])?;
 
-            let data = &read_buf[0..message_len];
+            let data = &read_buf[0..string_len];
 
             let body_length = u32::from_be_bytes(data[0..STRING_LEN].try_into().unwrap());
             let body = &data[STRING_LEN..(STRING_LEN + body_length as usize)];

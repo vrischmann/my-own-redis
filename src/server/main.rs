@@ -18,13 +18,59 @@ enum State {
     SendResponse,
 }
 
+struct ConnectionBuffer {
+    data: Vec<u8>,
+    write_head: usize,
+    read_head: usize,
+}
+
+impl ConnectionBuffer {
+    fn new() -> Self {
+        let mut data = Vec::with_capacity(BUF_LEN);
+        data.resize(BUF_LEN, 0xaa);
+
+        Self {
+            data,
+            write_head: 0,
+            read_head: 0,
+        }
+    }
+
+    fn writable(&mut self) -> &mut [u8] {
+        &mut self.data[self.write_head..]
+    }
+
+    fn readable(&self) -> &[u8] {
+        &self.data[self.read_head..self.write_head]
+    }
+
+    fn update_read_head(&mut self, n: usize) {
+        self.read_head += n
+    }
+
+    fn remove_processed(&mut self) {
+        let remaining = self.write_head - self.read_head;
+        if remaining <= 0 {
+            return;
+        }
+
+        let next = self.read_head;
+
+        println!(
+            "move bytes from {:?} to the start of the read buf",
+            next..next + remaining
+        );
+
+        self.data.copy_within(next..next + remaining, 0);
+        self.read_head = 0;
+    }
+}
+
 struct Connection {
     fd: i32,
     state: State,
 
-    read_buf_size: usize,
-    read_buf_consumed: usize,
-    read_buf: [u8; BUF_LEN],
+    read_buf: ConnectionBuffer,
 
     write_buf_size: usize,
     write_buf_sent: usize,
@@ -63,36 +109,15 @@ fn try_fill_buffer(
     context: &mut Context,
     connection: &mut Connection,
 ) -> Result<bool, TryFillBufferError> {
-    assert!(connection.read_buf_size < connection.read_buf.len());
-
     // Remove the already processed requests from the buffer, if any
-
-    if connection.read_buf_size > 0 {
-        let remaining = connection.read_buf_size - connection.read_buf_consumed;
-        if remaining > 0 {
-            let next_request_start = connection.read_buf_consumed;
-
-            println!(
-                "move bytes from {:?} to the start of the read buf",
-                next_request_start..next_request_start + remaining
-            );
-
-            connection
-                .read_buf
-                .copy_within(next_request_start..next_request_start + remaining, 0);
-
-            connection.read_buf_size = remaining;
-        }
-    }
-
-    connection.read_buf_consumed = 0;
+    connection.read_buf.remove_processed();
 
     //
 
     let data = loop {
-        let read_buf = &mut connection.read_buf[connection.read_buf_size..];
+        let buf = connection.read_buf.writable();
 
-        match shared::read(connection.fd, read_buf) {
+        match shared::read(connection.fd, buf) {
             Ok(data) => {
                 if data.is_empty() {
                     return Err(TryFillBufferError::EndOfStream);
@@ -109,8 +134,8 @@ fn try_fill_buffer(
         }
     };
 
-    connection.read_buf_size += data.len();
-    assert!(connection.read_buf_size < connection.read_buf.len());
+    connection.read_buf.write_head += data.len();
+    assert!(connection.read_buf.write_head < connection.read_buf.data.len());
 
     // Try to process requests
     loop {
@@ -165,52 +190,75 @@ fn try_one_request(
 ) -> Result<bool, TryOneRequestError> {
     // Parse the request
 
-    if connection.read_buf_size < HEADER_LEN {
-        return Ok(false);
-    }
+    let request_body = {
+        let buf = connection.read_buf.readable();
 
-    let read_buf = &connection.read_buf[connection.read_buf_consumed..];
+        if buf.len() < HEADER_LEN {
+            return Ok(false);
+        }
 
-    let message_len = {
-        let header_data = &read_buf[0..HEADER_LEN];
-        let len = u32::from_be_bytes(header_data.try_into().unwrap());
+        let message_len = {
+            let header_data = &buf[0..HEADER_LEN];
+            let len = u32::from_be_bytes(header_data.try_into().unwrap());
 
-        len as usize
+            len as usize
+        };
+        println!(
+            "buf: {:?} ({}), message len: {}",
+            buf,
+            String::from_utf8_lossy(buf),
+            message_len
+        );
+        if message_len > MAX_MSG_LEN {
+            return Err(TryOneRequestError::MessageTooLong);
+        }
+
+        if buf.len() < HEADER_LEN + message_len {
+            // Not enough data in the buffer
+            return Ok(false);
+        }
+
+        &buf[HEADER_LEN..HEADER_LEN + message_len]
     };
-    if message_len > MAX_MSG_LEN {
-        return Err(TryOneRequestError::MessageTooLong);
-    }
 
-    if HEADER_LEN + message_len > connection.read_buf_size {
-        // Not enough data in the buffer
-        return Ok(false);
+    println!(
+        "request body: {:?} ({})",
+        request_body,
+        String::from_utf8_lossy(request_body),
+    );
+
+    // Process the request
+    {
+        let write_buf = &mut connection.write_buf[connection.write_buf_size..];
+
+        let (response_code, written) = do_request(
+            context,
+            request_body,
+            &mut write_buf[HEADER_LEN + RESPONSE_CODE_LEN..],
+        )?;
+
+        let written = RESPONSE_CODE_LEN + written;
+
+        write_buf[0..HEADER_LEN].copy_from_slice(&(written as u32).to_be_bytes());
+        write_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN]
+            .copy_from_slice(&(response_code as u32).to_be_bytes());
+        connection.write_buf_size += HEADER_LEN + written as usize;
+
+        println!(
+            "write buf in try_one_request: {:?}",
+            &write_buf[0..connection.write_buf_size]
+        );
     }
 
     // "consume" the bytes of the current request
-    connection.read_buf_size -= HEADER_LEN + message_len;
-    connection.read_buf_consumed += HEADER_LEN + message_len;
-
-    // Process the request
-
-    let request_body = &read_buf[HEADER_LEN..HEADER_LEN + message_len];
-    let write_buf = &mut connection.write_buf[connection.write_buf_size..];
-
-    let (response_code, written) = do_request(
-        context,
-        request_body,
-        &mut write_buf[HEADER_LEN + RESPONSE_CODE_LEN..],
-    )?;
-
-    let written = RESPONSE_CODE_LEN + written;
-
-    write_buf[0..HEADER_LEN].copy_from_slice(&(written as u32).to_be_bytes());
-    write_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN]
-        .copy_from_slice(&(response_code as u32).to_be_bytes());
-    connection.write_buf_size += HEADER_LEN + written as usize;
+    connection
+        .read_buf
+        .update_read_head(HEADER_LEN + request_body.len());
 
     println!(
-        "write buf in try_one_request: {:?}",
-        &write_buf[0..connection.write_buf_size]
+        "buf after: {:?} ({})",
+        &connection.read_buf.readable(),
+        String::from_utf8_lossy(&connection.read_buf.readable()),
     );
 
     // Continue the outer loop if the request was fully processed
@@ -288,6 +336,15 @@ fn do_get<'b>(
     buf: &'b mut [u8],
 ) -> Result<(ResponseCode, &'b [u8]), DoRequestError> {
     println!("do_get; args: {:?}", args);
+
+    if args.len() <= 0 {
+        let resp = "no key provided";
+        buf[0..resp.len()].copy_from_slice(resp.as_bytes());
+
+        let response = &buf[0..resp.len()];
+
+        return Ok((ResponseCode::Err, response));
+    }
 
     let key = match std::str::from_utf8(args[0]) {
         Ok(key) => key,
@@ -499,9 +556,7 @@ fn accept_new_connection(connections: &mut HashMap<i32, Connection>, fd: i32) ->
     let connection = Connection {
         fd: conn_fd,
         state: State::ReadRequest,
-        read_buf_size: 0,
-        read_buf_consumed: 0,
-        read_buf: [0; BUF_LEN],
+        read_buf: ConnectionBuffer::new(),
         write_buf_size: 0,
         write_buf_sent: 0,
         write_buf: [0; BUF_LEN],
