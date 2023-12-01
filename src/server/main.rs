@@ -252,12 +252,6 @@ fn try_one_request(
 
             len as usize
         };
-        println!(
-            "buf: {:?} ({}), message len: {}",
-            buf,
-            String::from_utf8_lossy(buf),
-            message_len
-        );
         if message_len > MAX_MSG_LEN {
             return Err(TryOneRequestError::MessageTooLong);
         }
@@ -299,12 +293,6 @@ fn try_one_request(
     connection
         .read_buf
         .update_read_head(HEADER_LEN + request_body.len());
-
-    println!(
-        "buf after: {:?} ({})",
-        &connection.read_buf.readable(),
-        String::from_utf8_lossy(&connection.read_buf.readable()),
-    );
 
     // Continue the outer loop if the request was fully processed
     match connection.state {
