@@ -18,6 +18,48 @@ enum State {
     SendResponse,
 }
 
+struct ResponseWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> ResponseWriter<'a> {
+    fn new(buf: &'a mut [u8]) -> Self {
+        Self {
+            buf,
+            pos: HEADER_LEN + RESPONSE_CODE_LEN,
+        }
+    }
+
+    fn finish(&mut self) {
+        let buf = &mut self.buf[0..HEADER_LEN];
+
+        let written = self.pos - HEADER_LEN;
+
+        buf.copy_from_slice(&(written as u32).to_be_bytes());
+    }
+
+    fn set_response_code(&mut self, code: ResponseCode) {
+        let buf = &mut self.buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN];
+        buf.copy_from_slice(&(code as u32).to_be_bytes());
+    }
+
+    fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
+        let buf = &mut self.buf[self.pos..];
+
+        let bytes = value.as_ref();
+
+        buf[0..STRING_LEN].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+        buf[STRING_LEN..STRING_LEN + bytes.len()].copy_from_slice(bytes);
+
+        self.pos += STRING_LEN + bytes.len()
+    }
+
+    fn written(&self) -> usize {
+        self.pos
+    }
+}
+
 struct ConnectionBuffer {
     data: Vec<u8>,
     write_head: usize,
@@ -39,6 +81,13 @@ impl ConnectionBuffer {
     fn writable(&mut self) -> &mut [u8] {
         &mut self.data[self.write_head..]
     }
+
+    // fn push(&mut self, data: &mut [u8]) {
+    //     let buf = self.writable();
+    //     buf.copy_from_slice(data);
+    //
+    //     self.update_write_head(data.len());
+    // }
 
     fn readable(&self) -> &[u8] {
         &self.data[self.read_head..self.write_head]
@@ -229,22 +278,16 @@ fn try_one_request(
 
     // Process the request
     {
-        let write_buf = connection.write_buf.writable();
+        let written = {
+            let mut response_writer = ResponseWriter::new(connection.write_buf.writable());
 
-        let (response_code, written) = do_request(
-            context,
-            request_body,
-            &mut write_buf[HEADER_LEN + RESPONSE_CODE_LEN..],
-        )?;
+            do_request(context, request_body, &mut response_writer)?;
 
-        let written = RESPONSE_CODE_LEN + written;
+            response_writer.finish();
+            response_writer.written()
+        };
 
-        write_buf[0..HEADER_LEN].copy_from_slice(&(written as u32).to_be_bytes());
-        write_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN]
-            .copy_from_slice(&(response_code as u32).to_be_bytes());
-        connection
-            .write_buf
-            .update_write_head(HEADER_LEN + written as usize);
+        connection.write_buf.update_write_head(written);
 
         println!(
             "write buf in try_one_request: {:?}",
@@ -291,8 +334,8 @@ impl fmt::Display for DoRequestError {
 fn do_request(
     context: &mut Context,
     body: &[u8],
-    write_buf: &mut [u8],
-) -> Result<(ResponseCode, usize), DoRequestError> {
+    response_writer: &mut ResponseWriter,
+) -> Result<(), DoRequestError> {
     println!("client says {:?}", body);
 
     let request = match Command::parse(body) {
@@ -302,10 +345,10 @@ fn do_request(
 
             let resp = "Unknown command";
 
-            write_buf[0..STRING_LEN].copy_from_slice(&(resp.len() as u32).to_be_bytes());
-            write_buf[STRING_LEN..STRING_LEN + resp.len()].copy_from_slice(resp.as_bytes());
+            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_string(resp);
 
-            return Ok((ResponseCode::Err, resp.len()));
+            return Ok(());
         }
     };
 
@@ -318,18 +361,12 @@ fn do_request(
         Command::Del(args) => do_del(context, &args, &mut response_buf)?,
     };
 
-    let written = if response.len() > 0 {
-        write_buf[0..STRING_LEN].copy_from_slice(&(response.len() as u32).to_be_bytes());
-        write_buf[STRING_LEN..STRING_LEN + response.len()].copy_from_slice(response);
+    response_writer.set_response_code(response_code);
+    if response.len() > 0 {
+        response_writer.push_string(response);
+    }
 
-        STRING_LEN + response.len()
-    } else {
-        0
-    };
-
-    println!("do_request; write buf: {:?}", &write_buf[0..written]);
-
-    Ok((response_code, written))
+    Ok(())
 }
 
 fn do_get<'b>(
