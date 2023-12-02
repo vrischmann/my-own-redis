@@ -3,24 +3,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::io;
 use std::mem;
-
-#[derive(Debug)]
-pub struct MainError {
-    message: String,
-}
-
-impl<T> From<T> for MainError
-where
-    T: fmt::Display,
-{
-    fn from(v: T) -> Self {
-        Self {
-            message: v.to_string(),
-        }
-    }
-}
-
-//
+use thiserror::Error;
 
 pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
     let s_addr = u32::from_be_bytes(addr);
@@ -149,18 +132,12 @@ pub fn read(fd: i32, buf: &mut [u8]) -> io::Result<&[u8]> {
     Ok(data)
 }
 
+#[derive(Error, Debug)]
 pub enum ReadFullError {
+    #[error("i/o error")]
+    IO(#[from] io::Error),
+    #[error("end of stream")]
     EndOfStream,
-    IO(io::Error),
-}
-
-impl fmt::Display for ReadFullError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ReadFullError::EndOfStream => write!(f, "end of stream"),
-            ReadFullError::IO(err) => err.fmt(f),
-        }
-    }
 }
 
 pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadFullError> {
@@ -200,26 +177,14 @@ pub fn write(fd: i32, buf: &[u8]) -> io::Result<usize> {
     Ok(n as usize)
 }
 
-pub enum WriteFullError {
-    IO(io::Error),
-}
-
-impl fmt::Display for WriteFullError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::IO(err) => err.fmt(f),
-        }
-    }
-}
-
-pub fn write_full(fd: i32, buf: &[u8]) -> Result<(), WriteFullError> {
+pub fn write_full(fd: i32, buf: &[u8]) -> io::Result<()> {
     let mut remaining = buf.len();
     let mut buf = buf;
 
     while remaining > 0 {
         let n = unsafe { libc::write(fd, buf as *const _ as *const libc::c_void, buf.len()) };
         if n < 0 {
-            return Err(WriteFullError::IO(std::io::Error::last_os_error()));
+            return Err(std::io::Error::last_os_error());
         }
 
         let n = n as usize;
@@ -246,18 +211,12 @@ pub enum Command<'a> {
     Del(Vec<&'a [u8]>),
 }
 
+#[derive(Error, Debug)]
 pub enum ParseCommandError {
+    #[error("input too short")]
     InputTooShort,
+    #[error("unknown command '{0}")]
     UnknownCommand(String),
-}
-
-impl fmt::Display for ParseCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::InputTooShort => write!(f, "input too short"),
-            Self::UnknownCommand(cmd) => write!(f, "unknown command {}", cmd),
-        }
-    }
 }
 
 impl<'a> Command<'a> {

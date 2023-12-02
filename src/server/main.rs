@@ -4,9 +4,9 @@ use shared::{
     Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
 };
 use std::collections::HashMap;
-use std::fmt;
 use std::io;
 use std::mem;
+use thiserror::Error;
 
 struct Context {
     data: HashMap<String, String>,
@@ -22,18 +22,12 @@ struct Request<'a> {
     body: &'a [u8],
 }
 
+#[derive(Error, Debug)]
 enum RequestParseError {
+    #[error("not enough data")]
     NotEnoughData,
+    #[error("message too long")]
     MessageTooLong,
-}
-
-impl fmt::Display for RequestParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::NotEnoughData => write!(f, "not enough data"),
-            Self::MessageTooLong => write!(f, "message too long"),
-        }
-    }
 }
 
 impl<'a> Request<'a> {
@@ -166,32 +160,14 @@ struct Connection {
     write_buf: ConnectionBuffer,
 }
 
+#[derive(Error, Debug)]
 enum TryFillBufferError {
-    TryOneRequest(TryOneRequestError),
-    IO(io::Error),
+    #[error("try_one_request failed")]
+    TryOneRequest(#[from] TryOneRequestError),
+    #[error("i/o error")]
+    IO(#[from] io::Error),
+    #[error("end of stream")]
     EndOfStream,
-}
-
-impl From<TryOneRequestError> for TryFillBufferError {
-    fn from(err: TryOneRequestError) -> Self {
-        TryFillBufferError::TryOneRequest(err)
-    }
-}
-
-impl From<io::Error> for TryFillBufferError {
-    fn from(err: io::Error) -> Self {
-        TryFillBufferError::IO(err)
-    }
-}
-
-impl fmt::Display for TryFillBufferError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::TryOneRequest(err) => err.fmt(f),
-            Self::IO(err) => err.fmt(f),
-            Self::EndOfStream => write!(f, "end of stream"),
-        }
-    }
 }
 
 fn try_fill_buffer(
@@ -234,7 +210,7 @@ fn try_fill_buffer(
     // Try to send the responses
 
     connection.state = State::SendResponse;
-    do_send_responses(context, connection).unwrap();
+    do_send_responses(connection).unwrap();
 
     if let State::ReadRequest = connection.state {
         Ok(true)
@@ -243,38 +219,12 @@ fn try_fill_buffer(
     }
 }
 
+#[derive(Error, Debug)]
 enum TryOneRequestError {
-    SendResponse(SendResponseError),
-    DoRequest(DoRequestError),
-    RequestParse(RequestParseError),
-}
-
-impl From<SendResponseError> for TryOneRequestError {
-    fn from(err: SendResponseError) -> Self {
-        TryOneRequestError::SendResponse(err)
-    }
-}
-
-impl From<DoRequestError> for TryOneRequestError {
-    fn from(err: DoRequestError) -> Self {
-        TryOneRequestError::DoRequest(err)
-    }
-}
-
-impl From<RequestParseError> for TryOneRequestError {
-    fn from(err: RequestParseError) -> Self {
-        TryOneRequestError::RequestParse(err)
-    }
-}
-
-impl fmt::Display for TryOneRequestError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::SendResponse(err) => err.fmt(f),
-            Self::DoRequest(err) => err.fmt(f),
-            Self::RequestParse(err) => err.fmt(f),
-        }
-    }
+    #[error("do_request failed")]
+    DoRequest(#[from] DoRequestError),
+    #[error("request parsing failed")]
+    RequestParse(#[from] RequestParseError),
 }
 
 fn try_one_request(
@@ -321,22 +271,10 @@ fn try_one_request(
     }
 }
 
+#[derive(Error, Debug)]
 enum DoRequestError {
-    ParseCommand(shared::ParseCommandError),
-}
-
-impl From<shared::ParseCommandError> for DoRequestError {
-    fn from(err: shared::ParseCommandError) -> Self {
-        Self::ParseCommand(err)
-    }
-}
-
-impl fmt::Display for DoRequestError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::ParseCommand(err) => err.fmt(f),
-        }
-    }
+    #[error("command parsing failed")]
+    ParseCommand(#[from] shared::ParseCommandError),
 }
 
 fn do_request(
@@ -364,20 +302,16 @@ fn do_request(
     };
 
     match request {
-        Command::Get(args) => do_get(context, &args, &mut response_writer)?,
-        Command::Set(args) => do_set(context, &args, &mut response_writer)?,
-        Command::Del(args) => do_del(context, &args, &mut response_writer)?,
+        Command::Get(args) => do_get(context, &args, &mut response_writer),
+        Command::Set(args) => do_set(context, &args, &mut response_writer),
+        Command::Del(args) => do_del(context, &args, &mut response_writer),
     }
 
     response_writer.finish();
     Ok(response_writer.written())
 }
 
-fn do_get(
-    context: &mut Context,
-    args: &[&[u8]],
-    response_writer: &mut ResponseWriter,
-) -> Result<(), DoRequestError> {
+fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseWriter) {
     println!("do_get; args: {:?}", args);
 
     if args.len() <= 0 {
@@ -386,7 +320,7 @@ fn do_get(
         response_writer.set_response_code(ResponseCode::Err);
         response_writer.push_string(resp);
 
-        return Ok(());
+        return;
     }
 
     let key = match std::str::from_utf8(args[0]) {
@@ -397,7 +331,7 @@ fn do_get(
             response_writer.set_response_code(ResponseCode::Err);
             response_writer.push_string(resp);
 
-            return Ok(());
+            return;
         }
     };
 
@@ -406,25 +340,17 @@ fn do_get(
             println!("do_get; no value for key {}", key);
 
             response_writer.set_response_code(ResponseCode::Nx);
-
-            Ok(())
         }
         Some(value) => {
             println!("do_get; value for key {}: {}", key, value);
 
             response_writer.set_response_code(ResponseCode::Ok);
             response_writer.push_string(value);
-
-            Ok(())
         }
     }
 }
 
-fn do_set(
-    context: &mut Context,
-    args: &[&[u8]],
-    response_writer: &mut ResponseWriter,
-) -> Result<(), DoRequestError> {
+fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseWriter) {
     println!("do_set, args: {:?}", args);
 
     if args.len() != 2 {
@@ -433,7 +359,7 @@ fn do_set(
         response_writer.set_response_code(ResponseCode::Err);
         response_writer.push_string(resp);
 
-        return Ok(());
+        return;
     }
 
     // TODO(vincent): avoid cloning ?
@@ -445,7 +371,7 @@ fn do_set(
             response_writer.set_response_code(ResponseCode::Err);
             response_writer.push_string(resp);
 
-            return Ok(());
+            return;
         }
     };
 
@@ -457,22 +383,16 @@ fn do_set(
             response_writer.set_response_code(ResponseCode::Err);
             response_writer.push_string(resp);
 
-            return Ok(());
+            return;
         }
     };
 
     context.data.insert(key, value);
 
     response_writer.set_response_code(ResponseCode::Ok);
-
-    Ok(())
 }
 
-fn do_del<'b>(
-    context: &mut Context,
-    args: &[&[u8]],
-    response_writer: &mut ResponseWriter,
-) -> Result<(), DoRequestError> {
+fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseWriter) {
     println!("do_del, args: {:?}", args);
 
     if args.len() != 1 {
@@ -481,7 +401,7 @@ fn do_del<'b>(
         response_writer.set_response_code(ResponseCode::Err);
         response_writer.push_string(resp);
 
-        return Ok(());
+        return;
     }
 
     // TODO(vincent): avoid cloning ?
@@ -493,33 +413,19 @@ fn do_del<'b>(
             response_writer.set_response_code(ResponseCode::Err);
             response_writer.push_string(resp);
 
-            return Ok(());
+            return;
         }
     };
 
     context.data.remove(key);
 
     response_writer.set_response_code(ResponseCode::Ok);
-
-    Ok(())
 }
 
+#[derive(Error, Debug)]
 enum ReadRequestError {
-    TryFillBuffer(TryFillBufferError),
-}
-
-impl From<TryFillBufferError> for ReadRequestError {
-    fn from(err: TryFillBufferError) -> Self {
-        ReadRequestError::TryFillBuffer(err)
-    }
-}
-
-impl fmt::Display for ReadRequestError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::TryFillBuffer(err) => err.fmt(f),
-        }
-    }
+    #[error("try_fill_buffer error")]
+    TryFillBuffer(#[from] TryFillBufferError),
 }
 
 enum ConnectionAction {
@@ -557,31 +463,9 @@ fn do_read_request(
     Ok(ConnectionAction::DoNothing)
 }
 
-#[derive(Debug)]
-enum SendResponseError {
-    TryFlushBuffer(TryFlushBufferError),
-}
-
-impl From<TryFlushBufferError> for SendResponseError {
-    fn from(err: TryFlushBufferError) -> Self {
-        Self::TryFlushBuffer(err)
-    }
-}
-
-impl fmt::Display for SendResponseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::TryFlushBuffer(err) => err.fmt(f),
-        }
-    }
-}
-
-fn do_send_responses(
-    context: &mut Context,
-    connection: &mut Connection,
-) -> Result<ConnectionAction, SendResponseError> {
+fn do_send_responses(connection: &mut Connection) -> io::Result<ConnectionAction> {
     loop {
-        if !try_flush_buffer(context, connection)? {
+        if !try_flush_buffer(connection)? {
             break;
         }
     }
@@ -589,29 +473,7 @@ fn do_send_responses(
     Ok(ConnectionAction::DoNothing)
 }
 
-#[derive(Debug)]
-enum TryFlushBufferError {
-    IO(io::Error),
-}
-
-impl From<io::Error> for TryFlushBufferError {
-    fn from(err: io::Error) -> Self {
-        TryFlushBufferError::IO(err)
-    }
-}
-
-impl fmt::Display for TryFlushBufferError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::IO(err) => err.fmt(f),
-        }
-    }
-}
-
-fn try_flush_buffer(
-    context: &mut Context,
-    connection: &mut Connection,
-) -> Result<bool, TryFlushBufferError> {
+fn try_flush_buffer(connection: &mut Connection) -> io::Result<bool> {
     let written = loop {
         let write_buf = connection.write_buf.readable();
 
@@ -619,7 +481,7 @@ fn try_flush_buffer(
             Ok(n) => break n,
             Err(err) => {
                 if err.raw_os_error().unwrap() != libc::EAGAIN {
-                    return Err(TryFlushBufferError::IO(err));
+                    return Err(err);
                 }
                 return Ok(false);
             }
@@ -669,7 +531,7 @@ fn accept_new_connection(connections: &mut HashMap<i32, Connection>, fd: i32) ->
     Ok(())
 }
 
-fn main() -> Result<(), shared::MainError> {
+fn main() -> anyhow::Result<()> {
     // Create socket
 
     let fd = shared::create_socket()?;
@@ -755,7 +617,7 @@ fn main() -> Result<(), shared::MainError> {
                     Some(conn) => {
                         let action = match conn.state {
                             State::ReadRequest => do_read_request(&mut context, conn)?,
-                            State::SendResponse => do_send_responses(&mut context, conn)?,
+                            State::SendResponse => do_send_responses(conn)?,
                         };
 
                         match action {

@@ -1,34 +1,17 @@
 use shared::{
     Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
 };
-use std::fmt;
+use std::io;
+use thiserror::Error;
 
+#[derive(Error, Debug)]
 enum QueryError {
-    ReadFullError(shared::ReadFullError),
-    WriteFullError(shared::WriteFullError),
+    #[error("read_full error")]
+    ReadFullError(#[from] shared::ReadFullError),
+    #[error("i/o error")]
+    IO(#[from] io::Error),
+    #[error("message too long ({0} bytes)")]
     MessageTooLong(usize),
-}
-
-impl From<shared::ReadFullError> for QueryError {
-    fn from(err: shared::ReadFullError) -> QueryError {
-        QueryError::ReadFullError(err)
-    }
-}
-
-impl From<shared::WriteFullError> for QueryError {
-    fn from(err: shared::WriteFullError) -> QueryError {
-        QueryError::WriteFullError(err)
-    }
-}
-
-impl fmt::Display for QueryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            QueryError::ReadFullError(err) => err.fmt(f),
-            QueryError::WriteFullError(err) => err.fmt(f),
-            QueryError::MessageTooLong(n) => write!(f, "message too long ({} bytes)", n),
-        }
-    }
 }
 
 fn encode_string(arg: &[u8], buf: &mut Vec<u8>) {
@@ -161,7 +144,7 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
     Ok(())
 }
 
-fn main() -> Result<(), shared::MainError> {
+fn main() -> anyhow::Result<()> {
     // Parse the command
 
     let mut args: Vec<String> = std::env::args().collect();
