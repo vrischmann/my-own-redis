@@ -338,13 +338,9 @@ fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseW
 
     match context.data.get(key) {
         None => {
-            println!("do_get; no value for key {}", key);
-
             response_writer.set_response_code(ResponseCode::Nx);
         }
         Some(value) => {
-            println!("do_get; value for key {}: {}", key, value);
-
             response_writer.set_response_code(ResponseCode::Ok);
             response_writer.push_string(value);
         }
@@ -418,9 +414,14 @@ fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut Respo
         }
     };
 
-    context.data.remove(key);
-
-    response_writer.set_response_code(ResponseCode::Ok);
+    match context.data.remove(key) {
+        None => {
+            response_writer.set_response_code(ResponseCode::Nx);
+        }
+        Some(_) => {
+            response_writer.set_response_code(ResponseCode::Ok);
+        }
+    }
 }
 
 enum ConnectionAction {
