@@ -131,7 +131,8 @@ impl ConnectionBuffer {
     }
 
     fn update_read_head(&mut self, n: usize) {
-        self.read_head += n
+        self.read_head += n;
+        assert!(self.read_head < self.write_head);
     }
 
     fn remove_processed(&mut self) {
