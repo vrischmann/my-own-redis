@@ -132,7 +132,7 @@ impl ConnectionBuffer {
 
     fn update_read_head(&mut self, n: usize) {
         self.read_head += n;
-        assert!(self.read_head < self.write_head);
+        assert!(self.read_head <= self.write_head);
     }
 
     fn remove_processed(&mut self) {
@@ -211,7 +211,7 @@ fn try_fill_buffer(
     // Try to send the responses
 
     connection.state = State::SendResponse;
-    do_send_responses(connection).unwrap();
+    do_send_responses(connection);
 
     if let State::ReadRequest = connection.state {
         Ok(true)
@@ -423,21 +423,12 @@ fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut Respo
     response_writer.set_response_code(ResponseCode::Ok);
 }
 
-#[derive(Error, Debug)]
-enum ReadRequestError {
-    #[error("try_fill_buffer error")]
-    TryFillBuffer(#[from] TryFillBufferError),
-}
-
 enum ConnectionAction {
     DoNothing,
     Delete,
 }
 
-fn do_read_request(
-    context: &mut Context,
-    connection: &mut Connection,
-) -> Result<ConnectionAction, ReadRequestError> {
+fn do_read_request(context: &mut Context, connection: &mut Connection) -> ConnectionAction {
     loop {
         let result = match try_fill_buffer(context, connection) {
             Err(err) => {
@@ -452,7 +443,7 @@ fn do_read_request(
                         println!("try_fill_buffer call failed, err: {}", err);
                     }
                 }
-                return Ok(ConnectionAction::Delete);
+                return ConnectionAction::Delete;
             }
             Ok(v) => v,
         };
@@ -461,17 +452,26 @@ fn do_read_request(
         }
     }
 
-    Ok(ConnectionAction::DoNothing)
+    ConnectionAction::DoNothing
 }
 
-fn do_send_responses(connection: &mut Connection) -> io::Result<ConnectionAction> {
+fn do_send_responses(connection: &mut Connection) -> ConnectionAction {
     loop {
-        if !try_flush_buffer(connection)? {
+        let res = match try_flush_buffer(connection) {
+            Err(err) => {
+                println!("got error {}", err);
+
+                return ConnectionAction::Delete;
+            }
+            Ok(v) => v,
+        };
+
+        if !res {
             break;
         }
     }
 
-    Ok(ConnectionAction::DoNothing)
+    ConnectionAction::DoNothing
 }
 
 fn try_flush_buffer(connection: &mut Connection) -> io::Result<bool> {
@@ -617,8 +617,8 @@ fn main() -> anyhow::Result<()> {
                 match connections.get_mut(&pfd.fd) {
                     Some(conn) => {
                         let action = match conn.state {
-                            State::ReadRequest => do_read_request(&mut context, conn)?,
-                            State::SendResponse => do_send_responses(conn)?,
+                            State::ReadRequest => do_read_request(&mut context, conn),
+                            State::SendResponse => do_send_responses(conn),
                         };
 
                         match action {
