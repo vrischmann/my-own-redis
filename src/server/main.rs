@@ -2,7 +2,7 @@ use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
 use shared::protocol;
-use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN, RESPONSE_CODE_LEN, STRING_LEN};
+use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
@@ -15,49 +15,6 @@ struct Context {
 enum State {
     ReadRequest,
     SendResponse,
-}
-
-struct ResponseWriter<'a> {
-    buf: &'a mut [u8],
-    pos: usize,
-}
-
-impl<'a> ResponseWriter<'a> {
-    fn new(buf: &'a mut [u8]) -> Self {
-        Self {
-            buf,
-            pos: HEADER_LEN + RESPONSE_CODE_LEN,
-        }
-    }
-
-    fn finish(&mut self) {
-        let buf = &mut self.buf[0..HEADER_LEN];
-
-        let written = self.pos - HEADER_LEN;
-
-        buf.copy_from_slice(&(written as u32).to_be_bytes());
-    }
-
-    fn set_response_code(&mut self, code: ResponseCode) {
-        let buf = &mut self.buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN];
-        buf.copy_from_slice(&(code as u32).to_be_bytes());
-    }
-
-    fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
-        let bytes = value.as_ref();
-        let buf = &mut self.buf[self.pos..];
-
-        assert!(bytes.len() < buf.len());
-
-        buf[0..STRING_LEN].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
-        buf[STRING_LEN..STRING_LEN + bytes.len()].copy_from_slice(bytes);
-
-        self.pos += STRING_LEN + bytes.len()
-    }
-
-    fn written(&self) -> usize {
-        self.pos
-    }
 }
 
 struct ConnectionBuffer {
@@ -246,7 +203,7 @@ fn do_request(
 ) -> Result<usize, DoRequestError> {
     println!("client says {:?}", body);
 
-    let mut response_writer = ResponseWriter::new(write_buf);
+    let mut response_writer = protocol::ResponseWriter::new(write_buf);
 
     let request = match Command::parse(body) {
         Ok(request) => request,
@@ -273,7 +230,7 @@ fn do_request(
     Ok(response_writer.written())
 }
 
-fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseWriter) {
+fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::ResponseWriter) {
     println!("do_get; args: {:?}", args);
 
     if args.len() <= 0 {
@@ -308,7 +265,7 @@ fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseW
     }
 }
 
-fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseWriter) {
+fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::ResponseWriter) {
     println!("do_set, args: {:?}", args);
 
     if args.len() != 2 {
@@ -350,7 +307,11 @@ fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseW
     response_writer.set_response_code(ResponseCode::Ok);
 }
 
-fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut ResponseWriter) {
+fn do_del<'b>(
+    context: &mut Context,
+    args: &[&[u8]],
+    response_writer: &mut protocol::ResponseWriter,
+) {
     println!("do_del, args: {:?}", args);
 
     if args.len() != 1 {
