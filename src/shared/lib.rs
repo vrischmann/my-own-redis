@@ -202,7 +202,6 @@ pub fn write_full(fd: i32, buf: &[u8]) -> io::Result<()> {
 pub const HEADER_LEN: usize = 4;
 pub const MAX_MSG_LEN: usize = 4096;
 pub const BUF_LEN: usize = HEADER_LEN + MAX_MSG_LEN;
-pub const RESPONSE_CODE_LEN: usize = 4;
 
 #[derive(Copy, Clone)]
 pub enum ResponseCode {

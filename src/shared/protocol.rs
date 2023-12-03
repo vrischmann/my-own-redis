@@ -1,9 +1,10 @@
 use onlyerror::Error;
 
-use crate::{HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN};
+use crate::{HEADER_LEN, MAX_MSG_LEN};
 
 const INTEGER_LEN: usize = 4;
 const STRING_LEN: usize = 4;
+const RESPONSE_CODE_LEN: usize = 4;
 
 #[derive(Error, Debug)]
 pub enum Error {
