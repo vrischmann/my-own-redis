@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
     // Parse the command
 
     let mut args: Vec<String> = std::env::args().collect();
-    if args.len() < 1 {
+    if args.len() < 2 {
         println!("Usage: my-own-redis <command> [<arg> ...]");
         std::process::exit(1);
     }
