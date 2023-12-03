@@ -18,4 +18,4 @@ path = "src/client/main.rs"
 [dependencies]
 anyhow = "1.0.75"
 libc = "0.2.150"
-thiserror = "1.0.50"
+onlyerror = "0.1.3"

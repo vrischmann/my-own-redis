@@ -1,12 +1,12 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
+use onlyerror::Error;
 use shared::{
     Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
 };
 use std::collections::HashMap;
 use std::io;
 use std::mem;
-use thiserror::Error;
 
 struct Context {
     data: HashMap<String, String>,

@@ -1,9 +1,9 @@
 use libc::{setsockopt, socket, AF_INET, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_STREAM, SOL_SOCKET};
+use onlyerror::Error;
 use std::borrow::Cow;
 use std::fmt;
 use std::io;
 use std::mem;
-use thiserror::Error;
 
 pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
     let s_addr = u32::from_be_bytes(addr);
