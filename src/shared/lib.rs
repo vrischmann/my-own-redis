@@ -212,6 +212,12 @@ pub enum ResponseCode {
     Nx = 2,
 }
 
+impl From<ResponseCode> for u32 {
+    fn from(code: ResponseCode) -> u32 {
+        code as u32
+    }
+}
+
 impl fmt::Display for ResponseCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

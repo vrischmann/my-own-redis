@@ -201,7 +201,7 @@ fn do_request(
 ) -> Result<usize, DoRequestError> {
     println!("client says {:?}", body);
 
-    let mut response_writer = protocol::ResponseWriter::new(write_buf);
+    let mut writer = protocol::Writer::new(write_buf);
 
     let request = match command::parse(body) {
         Ok(request) => request,
@@ -210,37 +210,37 @@ fn do_request(
 
             let resp = "Unknown command";
 
-            response_writer.set_response_code(ResponseCode::Err);
-            response_writer.push_string(resp);
+            writer.push_u32(ResponseCode::Err);
+            writer.push_string(resp);
 
-            response_writer.finish();
-            return Ok(response_writer.written());
+            writer.finish();
+            return Ok(writer.written());
         }
     };
 
     let (cmd, args) = (request[0], &request[1..]);
 
     match cmd {
-        b"get" => do_get(context, &args, &mut response_writer),
-        b"set" => do_set(context, &args, &mut response_writer),
-        b"del" => do_del(context, &args, &mut response_writer),
+        b"get" => do_get(context, &args, &mut writer),
+        b"set" => do_set(context, &args, &mut writer),
+        b"del" => do_del(context, &args, &mut writer),
         _ => panic!(
             "unknown command {}, should never happen",
             String::from_utf8_lossy(cmd)
         ),
     }
 
-    response_writer.finish();
-    Ok(response_writer.written())
+    writer.finish();
+    Ok(writer.written())
 }
 
-fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::ResponseWriter) {
+fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_get; args: {:?}", args);
 
     if args.len() <= 0 {
         let resp = "no key provided";
 
-        response_writer.set_response_code(ResponseCode::Err);
+        response_writer.push_u32(ResponseCode::Err);
         response_writer.push_string(resp);
 
         return;
@@ -251,7 +251,7 @@ fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
         Err(_) => {
             let resp = "invalid key";
 
-            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_u32(ResponseCode::Err);
             response_writer.push_string(resp);
 
             return;
@@ -260,22 +260,22 @@ fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
 
     match context.data.get(key) {
         None => {
-            response_writer.set_response_code(ResponseCode::Nx);
+            response_writer.push_u32(ResponseCode::Nx);
         }
         Some(value) => {
-            response_writer.set_response_code(ResponseCode::Ok);
+            response_writer.push_u32(ResponseCode::Ok);
             response_writer.push_string(value);
         }
     }
 }
 
-fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::ResponseWriter) {
+fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_set, args: {:?}", args);
 
     if args.len() != 2 {
         let resp = "no key and value provided";
 
-        response_writer.set_response_code(ResponseCode::Err);
+        response_writer.push_u32(ResponseCode::Err);
         response_writer.push_string(resp);
 
         return;
@@ -287,7 +287,7 @@ fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
         Err(_) => {
             let resp = "invalid key";
 
-            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_u32(ResponseCode::Err);
             response_writer.push_string(resp);
 
             return;
@@ -299,7 +299,7 @@ fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
         Err(_) => {
             let resp = "invalid key";
 
-            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_u32(ResponseCode::Err);
             response_writer.push_string(resp);
 
             return;
@@ -308,20 +308,16 @@ fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
 
     context.data.insert(key, value);
 
-    response_writer.set_response_code(ResponseCode::Ok);
+    response_writer.push_u32(ResponseCode::Ok);
 }
 
-fn do_del<'b>(
-    context: &mut Context,
-    args: &[&[u8]],
-    response_writer: &mut protocol::ResponseWriter,
-) {
+fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_del, args: {:?}", args);
 
     if args.len() != 1 {
         let resp = "no key provided";
 
-        response_writer.set_response_code(ResponseCode::Err);
+        response_writer.push_u32(ResponseCode::Err);
         response_writer.push_string(resp);
 
         return;
@@ -333,7 +329,7 @@ fn do_del<'b>(
         Err(_) => {
             let resp = "invalid key";
 
-            response_writer.set_response_code(ResponseCode::Err);
+            response_writer.push_u32(ResponseCode::Err);
             response_writer.push_string(resp);
 
             return;
@@ -342,10 +338,10 @@ fn do_del<'b>(
 
     match context.data.remove(key) {
         None => {
-            response_writer.set_response_code(ResponseCode::Nx);
+            response_writer.push_u32(ResponseCode::Nx);
         }
         Some(_) => {
-            response_writer.set_response_code(ResponseCode::Ok);
+            response_writer.push_u32(ResponseCode::Ok);
         }
     }
 }

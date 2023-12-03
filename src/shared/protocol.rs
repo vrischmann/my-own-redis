@@ -1,6 +1,6 @@
 use onlyerror::Error;
 
-use crate::{ResponseCode, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN};
+use crate::{HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN};
 
 #[derive(Error, Debug)]
 pub enum RequestParseError {
@@ -35,12 +35,12 @@ pub fn parse_request(buf: &[u8]) -> Result<(usize, &[u8]), RequestParseError> {
     Ok((read, body))
 }
 
-pub struct ResponseWriter<'a> {
+pub struct Writer<'a> {
     buf: &'a mut [u8],
     pos: usize,
 }
 
-impl<'a> ResponseWriter<'a> {
+impl<'a> Writer<'a> {
     pub fn new(buf: &'a mut [u8]) -> Self {
         assert!(buf.len() >= HEADER_LEN + RESPONSE_CODE_LEN);
 
@@ -58,9 +58,9 @@ impl<'a> ResponseWriter<'a> {
         buf.copy_from_slice(&(written as u32).to_be_bytes());
     }
 
-    pub fn set_response_code(&mut self, code: ResponseCode) {
+    pub fn push_u32<T: Into<u32>>(&mut self, value: T) {
         let buf = &mut self.buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN];
-        buf.copy_from_slice(&(code as u32).to_be_bytes());
+        buf.copy_from_slice(&(value.into() as u32).to_be_bytes());
     }
 
     pub fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
@@ -124,7 +124,7 @@ impl<'a> RequestWriter<'a> {
 mod tests {
     use crate::{protocol::RequestWriter, ResponseCode};
 
-    use super::{parse_request, ResponseWriter};
+    use super::{parse_request, Writer};
 
     #[test]
     fn reader() {
@@ -136,12 +136,12 @@ mod tests {
     }
 
     #[test]
-    fn response_writer() {
+    fn writer() {
         let mut buf: [u8; 1024] = [0; 1024];
 
         let written = {
-            let mut writer = ResponseWriter::new(&mut buf);
-            writer.set_response_code(ResponseCode::Nx);
+            let mut writer = Writer::new(&mut buf);
+            writer.push_u32(ResponseCode::Nx);
             writer.push_string("foo");
             writer.push_string("bar");
             writer.finish();
