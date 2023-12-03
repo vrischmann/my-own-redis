@@ -1,6 +1,6 @@
 use onlyerror::Error;
 use shared::{
-    Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
+    command::Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
 };
 use std::io;
 

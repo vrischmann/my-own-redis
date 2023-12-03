@@ -1,8 +1,9 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
+use shared::command::Command;
 use shared::protocol;
-use shared::{Command, ResponseCode, BUF_LEN};
+use shared::{ResponseCode, BUF_LEN};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
@@ -191,7 +192,7 @@ fn try_one_request(
 #[derive(Error, Debug)]
 enum DoRequestError {
     #[error("command parsing failed")]
-    ParseCommand(#[from] shared::ParseCommandError),
+    ParseCommand(#[from] shared::command::ParseCommandError),
 }
 
 fn do_request(
