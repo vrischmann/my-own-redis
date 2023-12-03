@@ -26,10 +26,12 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
         buf.resize(BUF_LEN, 0xAA);
 
         let written = {
-            let mut writer = shared::protocol::RequestWriter::new(&mut buf);
+            let mut writer = shared::protocol::Writer::new(&mut buf);
+
             for command in commands {
                 let (cmd, args) = (command[0], &command[1..]);
 
+                writer.push_u32(command.len() as u32);
                 writer.push_string(cmd);
                 for arg in args {
                     writer.push_string(arg);
