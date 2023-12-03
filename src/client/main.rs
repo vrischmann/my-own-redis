@@ -1,5 +1,9 @@
 use onlyerror::Error;
-use shared::{command, protocol, ResponseCode, BUF_LEN, MAX_MSG_LEN};
+use shared::{
+    command,
+    protocol::{self, BUF_LEN, MAX_MSG_LEN},
+    ResponseCode,
+};
 use std::io;
 
 #[derive(Error, Debug)]

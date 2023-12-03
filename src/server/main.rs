@@ -1,8 +1,9 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
+use shared::protocol::BUF_LEN;
+use shared::ResponseCode;
 use shared::{command, protocol};
-use shared::{ResponseCode, BUF_LEN};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
