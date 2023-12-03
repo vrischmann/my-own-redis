@@ -1,9 +1,8 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
-use shared::{
-    Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
-};
+use shared::protocol;
+use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN, RESPONSE_CODE_LEN, STRING_LEN};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
@@ -16,44 +15,6 @@ struct Context {
 enum State {
     ReadRequest,
     SendResponse,
-}
-
-struct Request<'a> {
-    body: &'a [u8],
-}
-
-#[derive(Error, Debug)]
-enum RequestParseError {
-    #[error("not enough data")]
-    NotEnoughData,
-    #[error("message too long")]
-    MessageTooLong,
-}
-
-impl<'a> Request<'a> {
-    fn parse(buf: &'a [u8]) -> Result<Self, RequestParseError> {
-        if buf.len() < HEADER_LEN {
-            return Err(RequestParseError::NotEnoughData);
-        }
-
-        let message_len = {
-            let header_data = &buf[0..HEADER_LEN];
-            let len = u32::from_be_bytes(header_data.try_into().unwrap());
-
-            len as usize
-        };
-        if message_len > MAX_MSG_LEN {
-            return Err(RequestParseError::MessageTooLong);
-        }
-
-        if buf.len() < HEADER_LEN + message_len {
-            return Err(RequestParseError::NotEnoughData);
-        }
-
-        Ok(Self {
-            body: &buf[HEADER_LEN..HEADER_LEN + message_len],
-        })
-    }
 }
 
 struct ResponseWriter<'a> {
@@ -225,7 +186,7 @@ enum TryOneRequestError {
     #[error("do_request failed")]
     DoRequest(#[from] DoRequestError),
     #[error("request parsing failed")]
-    RequestParse(#[from] RequestParseError),
+    RequestParse(#[from] protocol::RequestParseError),
 }
 
 fn try_one_request(
@@ -234,23 +195,23 @@ fn try_one_request(
 ) -> Result<bool, TryOneRequestError> {
     // Parse the request
 
-    let request = match Request::parse(connection.read_buf.readable()) {
+    let request = match protocol::parse_request(connection.read_buf.readable()) {
         Ok(request) => request,
         Err(err) => match err {
-            RequestParseError::MessageTooLong => return Err(err.into()),
-            RequestParseError::NotEnoughData => return Ok(false),
+            protocol::RequestParseError::MessageTooLong => return Err(err.into()),
+            protocol::RequestParseError::NotEnoughData => return Ok(false),
         },
     };
 
     println!(
         "request body: {:?} ({})",
-        request.body,
-        String::from_utf8_lossy(request.body),
+        request,
+        String::from_utf8_lossy(request)
     );
 
     // Process the request
     {
-        let written = do_request(context, request.body, connection.write_buf.writable())?;
+        let written = do_request(context, request, connection.write_buf.writable())?;
 
         connection.write_buf.update_write_head(written);
 
@@ -263,7 +224,7 @@ fn try_one_request(
     // "consume" the bytes of the current request
     connection
         .read_buf
-        .update_read_head(HEADER_LEN + request.body.len());
+        .update_read_head(HEADER_LEN + request.len());
 
     // Continue the outer loop if the request was fully processed
     match connection.state {

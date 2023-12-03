@@ -5,6 +5,8 @@ use std::fmt;
 use std::io;
 use std::mem;
 
+pub mod protocol;
+
 pub fn make_addr(addr: [u8; 4], port: u16) -> libc::sockaddr_in {
     let s_addr = u32::from_be_bytes(addr);
 
