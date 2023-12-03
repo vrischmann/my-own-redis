@@ -42,6 +42,8 @@ pub struct ResponseWriter<'a> {
 
 impl<'a> ResponseWriter<'a> {
     pub fn new(buf: &'a mut [u8]) -> Self {
+        assert!(buf.len() >= HEADER_LEN + RESPONSE_CODE_LEN);
+
         Self {
             buf,
             pos: HEADER_LEN + RESPONSE_CODE_LEN,
