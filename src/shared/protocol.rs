@@ -80,9 +80,49 @@ impl<'a> ResponseWriter<'a> {
     }
 }
 
+pub struct RequestWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> RequestWriter<'a> {
+    pub fn new(buf: &'a mut [u8]) -> Self {
+        assert!(buf.len() >= HEADER_LEN);
+
+        Self {
+            buf,
+            pos: HEADER_LEN,
+        }
+    }
+
+    pub fn finish(&mut self) {
+        let buf = &mut self.buf[0..HEADER_LEN];
+
+        let written = self.pos - HEADER_LEN;
+
+        buf.copy_from_slice(&(written as u32).to_be_bytes());
+    }
+
+    pub fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
+        let bytes = value.as_ref();
+        let buf = &mut self.buf[self.pos..];
+
+        assert!(bytes.len() < buf.len());
+
+        buf[0..STRING_LEN].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+        buf[STRING_LEN..STRING_LEN + bytes.len()].copy_from_slice(bytes);
+
+        self.pos += STRING_LEN + bytes.len()
+    }
+
+    pub fn written(&self) -> usize {
+        self.pos
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ResponseCode;
+    use crate::{protocol::RequestWriter, ResponseCode};
 
     use super::{parse_request, ResponseWriter};
 
@@ -112,6 +152,26 @@ mod tests {
         let written = &buf[0..written];
         assert_eq!(
             b"\x00\x00\x00\x12\x00\x00\x00\x02\x00\x00\x00\x03foo\x00\x00\x00\x03bar",
+            written
+        );
+    }
+
+    #[test]
+    fn request_writer() {
+        let mut buf: [u8; 1024] = [0; 1024];
+
+        let written = {
+            let mut writer = RequestWriter::new(&mut buf);
+            writer.push_string("foo");
+            writer.push_string("bar");
+            writer.finish();
+
+            writer.written()
+        };
+
+        let written = &buf[0..written];
+        assert_eq!(
+            b"\x00\x00\x00\x0E\x00\x00\x00\x03foo\x00\x00\x00\x03bar",
             written
         );
     }

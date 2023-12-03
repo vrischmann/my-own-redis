@@ -14,13 +14,6 @@ enum QueryError {
     MessageTooLong(usize),
 }
 
-fn encode_string(arg: &[u8], buf: &mut Vec<u8>) {
-    let len_bytes = &(arg.len() as u32).to_be_bytes();
-
-    buf.extend_from_slice(len_bytes);
-    buf.extend_from_slice(arg);
-}
-
 fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> {
     // Write all commands
 
@@ -28,23 +21,29 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
 
     println!("writing all commands: {:?}", commands);
 
-    let mut write_buf = Vec::with_capacity(BUF_LEN);
+    let write_buf = {
+        let mut buf = Vec::with_capacity(BUF_LEN);
+        buf.resize(BUF_LEN, 0xAA);
 
-    write_buf.extend_from_slice(&(0 as u32).to_be_bytes()); // message length; placeholder for now
+        let written = {
+            let mut writer = shared::protocol::RequestWriter::new(&mut buf);
+            for command in commands {
+                let (cmd, args) = (command[0], &command[1..]);
 
-    for command in commands {
-        let (cmd, args) = (command[0], &command[1..]);
+                writer.push_string(cmd);
+                for arg in args {
+                    writer.push_string(arg);
+                }
+            }
 
-        write_buf.extend_from_slice(&(command.len() as u32).to_be_bytes()); // number of commands
-        encode_string(cmd, &mut write_buf);
-        for arg in args {
-            encode_string(arg, &mut write_buf);
-        }
-    }
+            writer.finish();
+            writer.written()
+        };
 
-    // Now we know the message length, write it
-    let written = write_buf.len();
-    write_buf[0..HEADER_LEN].copy_from_slice(&((written - HEADER_LEN) as u32).to_be_bytes());
+        buf.truncate(written);
+
+        buf
+    };
 
     // TODO(vincent): do this before allocating
     if write_buf.len() > MAX_MSG_LEN {
