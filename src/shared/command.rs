@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use onlyerror::Error;
 
-use crate::{ARGS_LEN, STRING_LEN};
+use crate::STRING_LEN;
 
 #[derive(Debug)]
 pub enum Command<'a> {
@@ -18,6 +18,8 @@ pub enum ParseCommandError {
     #[error("unknown command '{0}")]
     UnknownCommand(String),
 }
+
+const ARGS_LEN: usize = 4;
 
 impl<'a> Command<'a> {
     pub fn parse(body: &'a [u8]) -> Result<Self, ParseCommandError> {
