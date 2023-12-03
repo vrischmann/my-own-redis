@@ -2,6 +2,8 @@ use onlyerror::Error;
 
 use crate::{HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN};
 
+const INTEGER_LEN: usize = 4;
+
 #[derive(Error, Debug)]
 pub enum RequestParseError {
     #[error("not enough data")]
@@ -33,6 +35,50 @@ pub fn parse_request(buf: &[u8]) -> Result<(usize, &[u8]), RequestParseError> {
     let read = HEADER_LEN + body.len();
 
     Ok((read, body))
+}
+
+#[derive(Error, Debug)]
+pub enum ReadError {
+    #[error("input too short")]
+    InputTooShort(usize),
+}
+
+pub struct Reader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
+    pub fn read_u32(&mut self) -> Result<u32, ReadError> {
+        if self.buf.len() < INTEGER_LEN {
+            return Err(ReadError::InputTooShort(self.buf.len()));
+        }
+
+        let n = {
+            let buf = &self.buf[self.pos..self.pos + INTEGER_LEN];
+
+            let data: [u8; 4] = buf.try_into().unwrap();
+            u32::from_be_bytes(data)
+        };
+
+        self.pos += INTEGER_LEN;
+
+        Ok(n)
+    }
+
+    pub fn read_string(&mut self) -> Result<&'a [u8], ReadError> {
+        let n = self.read_u32()?;
+
+        let data = &self.buf[self.pos..self.pos + (n as usize)];
+
+        self.pos += data.len();
+
+        Ok(data)
+    }
 }
 
 pub struct Writer<'a> {
