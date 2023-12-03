@@ -1,6 +1,7 @@
 use onlyerror::Error;
 use shared::{
-    command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
+    command, protocol, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN,
+    STRING_LEN,
 };
 use std::io;
 
@@ -15,6 +16,13 @@ enum QueryError {
 }
 
 fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> {
+    // Sanity checks
+
+    let buffer_size_needed = protocol::buffer_size_needed(commands);
+    if buffer_size_needed >= MAX_MSG_LEN {
+        return Err(QueryError::MessageTooLong(buffer_size_needed));
+    }
+
     // Write all commands
 
     let write_start = std::time::Instant::now();
@@ -48,9 +56,7 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
     };
 
     // TODO(vincent): do this before allocating
-    if write_buf.len() > MAX_MSG_LEN {
-        return Err(QueryError::MessageTooLong(write_buf.len()));
-    }
+    if write_buf.len() > MAX_MSG_LEN {}
 
     println!("client write buf: {:?}", &write_buf);
 

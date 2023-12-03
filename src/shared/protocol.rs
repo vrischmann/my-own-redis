@@ -80,6 +80,21 @@ impl<'a> Writer<'a> {
     }
 }
 
+pub fn buffer_size_needed(commands: &[Vec<&[u8]>]) -> usize {
+    // Layout:
+    //
+    // * 4 bytes for the number of strings
+    // per string
+    // * 4 bytes for the length
+    // * data bytes
+
+    let size_for_all_strings = commands
+        .iter()
+        .fold(0, |acc, value| -> usize { acc + STRING_LEN + value.len() });
+
+    4 + size_for_all_strings
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ResponseCode;
