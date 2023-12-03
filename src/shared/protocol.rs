@@ -5,16 +5,18 @@ use crate::{HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN};
 const INTEGER_LEN: usize = 4;
 
 #[derive(Error, Debug)]
-pub enum RequestParseError {
-    #[error("not enough data")]
-    NotEnoughData,
-    #[error("message too long")]
-    MessageTooLong,
+pub enum Error {
+    #[error("input too short ({0} bytes)")]
+    InputTooShort(usize),
+    #[error("message too long ({0} bytes)")]
+    MessageTooLong(usize),
 }
 
-pub fn parse_request(buf: &[u8]) -> Result<(usize, &[u8]), RequestParseError> {
+type Result<T> = std::result::Result<T, Error>;
+
+pub fn parse_message(buf: &[u8]) -> Result<(usize, &[u8])> {
     if buf.len() < HEADER_LEN {
-        return Err(RequestParseError::NotEnoughData);
+        return Err(Error::InputTooShort(buf.len()));
     }
 
     let message_len = {
@@ -24,23 +26,17 @@ pub fn parse_request(buf: &[u8]) -> Result<(usize, &[u8]), RequestParseError> {
         len as usize
     };
     if message_len > MAX_MSG_LEN {
-        return Err(RequestParseError::MessageTooLong);
+        return Err(Error::MessageTooLong(message_len));
     }
 
     if buf.len() < HEADER_LEN + message_len {
-        return Err(RequestParseError::NotEnoughData);
+        return Err(Error::InputTooShort(buf.len()));
     }
 
     let body = &buf[HEADER_LEN..HEADER_LEN + message_len];
     let read = HEADER_LEN + body.len();
 
     Ok((read, body))
-}
-
-#[derive(Error, Debug)]
-pub enum ReadError {
-    #[error("input too short")]
-    InputTooShort(usize),
 }
 
 pub struct Reader<'a> {
@@ -53,15 +49,18 @@ impl<'a> Reader<'a> {
         Self { buf, pos: 0 }
     }
 
-    pub fn read_u32(&mut self) -> Result<u32, ReadError> {
-        if self.buf.len() < INTEGER_LEN {
-            return Err(ReadError::InputTooShort(self.buf.len()));
+    pub fn has_more(&self) -> bool {
+        self.pos < self.buf.len()
+    }
+
+    pub fn read_u32(&mut self) -> Result<u32> {
+        let buf = &self.buf[self.pos..];
+        if buf.len() < INTEGER_LEN {
+            return Err(Error::InputTooShort(buf.len()));
         }
 
         let n = {
-            let buf = &self.buf[self.pos..self.pos + INTEGER_LEN];
-
-            let data: [u8; 4] = buf.try_into().unwrap();
+            let data: [u8; 4] = buf[0..INTEGER_LEN].try_into().unwrap();
             u32::from_be_bytes(data)
         };
 
@@ -70,14 +69,19 @@ impl<'a> Reader<'a> {
         Ok(n)
     }
 
-    pub fn read_string(&mut self) -> Result<&'a [u8], ReadError> {
-        let n = self.read_u32()?;
+    pub fn read_string(&mut self) -> Result<&'a [u8]> {
+        let n = self.read_u32()? as usize;
 
-        let data = &self.buf[self.pos..self.pos + (n as usize)];
+        let buf = &self.buf[self.pos..];
+        if buf.len() < n {
+            return Err(Error::InputTooShort(buf.len()));
+        }
 
-        self.pos += data.len();
+        let result = &buf[0..n];
 
-        Ok(data)
+        self.pos += result.len();
+
+        Ok(result)
     }
 }
 
@@ -145,13 +149,13 @@ pub fn buffer_size_needed(commands: &[Vec<&[u8]>]) -> usize {
 mod tests {
     use crate::ResponseCode;
 
-    use super::{parse_request, Writer};
+    use super::{parse_message, Writer};
 
     #[test]
     fn reader() {
         let data = b"\x00\x00\x00\x06foobar";
 
-        let (read, request) = parse_request(data).unwrap();
+        let (read, request) = parse_message(data).unwrap();
         assert_eq!(10, read);
         assert_eq!(b"foobar", request);
     }

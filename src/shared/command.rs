@@ -4,8 +4,8 @@ use crate::protocol;
 
 #[derive(Error, Debug)]
 pub enum ParseCommandError {
-    #[error("read error")]
-    ReadError(#[from] protocol::ReadError),
+    #[error("protocol error")]
+    Protocol(#[from] protocol::Error),
     #[error("unknown command '{0}")]
     UnknownCommand(String),
 }

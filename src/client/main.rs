@@ -1,8 +1,5 @@
 use onlyerror::Error;
-use shared::{
-    command, protocol, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN,
-    STRING_LEN,
-};
+use shared::{command, protocol, ResponseCode, BUF_LEN, MAX_MSG_LEN};
 use std::io;
 
 #[derive(Error, Debug)]
@@ -11,6 +8,8 @@ enum QueryError {
     ReadFullError(#[from] shared::ReadFullError),
     #[error("i/o error")]
     IO(#[from] io::Error),
+    #[error("protocol error")]
+    Protocol(#[from] protocol::Error),
     #[error("message too long ({0} bytes)")]
     MessageTooLong(usize),
 }
@@ -73,43 +72,21 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
     println!("reading all responses");
 
     for _ in 0..commands.len() {
-        let mut read_buf: [u8; BUF_LEN] = [0; BUF_LEN];
+        let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
 
-        shared::read_full(fd, &mut read_buf[0..HEADER_LEN + RESPONSE_CODE_LEN])?;
+        let read_buf = shared::read(fd, &mut buf)?;
 
-        // Decode message length
+        //
 
-        let message_len = {
-            let data = &read_buf[0..HEADER_LEN];
+        // TODO(vincent): maybe better error handling ?
+        let (_, message) = protocol::parse_message(&read_buf).unwrap();
 
-            let len = u32::from_be_bytes(data.try_into().unwrap());
-            len as usize
-        };
+        let mut reader = protocol::Reader::new(message);
 
-        if message_len > MAX_MSG_LEN {
-            return Err(QueryError::MessageTooLong(message_len));
-        }
+        let response_code: ResponseCode = reader.read_u32()?.try_into().unwrap();
 
-        // Decode response code
-
-        let response_code: ResponseCode = {
-            let data = &read_buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN];
-
-            let tmp = u32::from_be_bytes(data.try_into().unwrap());
-
-            tmp.try_into().unwrap()
-        };
-
-        // Body
-
-        let string_len = message_len - RESPONSE_CODE_LEN;
-        if string_len > 0 {
-            shared::read_full(fd, &mut read_buf[0..string_len])?;
-
-            let data = &read_buf[0..string_len];
-
-            let body_length = u32::from_be_bytes(data[0..STRING_LEN].try_into().unwrap());
-            let body = &data[STRING_LEN..(STRING_LEN + body_length as usize)];
+        if reader.has_more() {
+            let body = reader.read_string()?;
 
             println!(
                 "server says [{}]: {} (len={})",
@@ -118,7 +95,7 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
                 body.len(),
             );
         } else {
-            println!("server says [{}]", response_code);
+            println!("server says [{}] (no body)", response_code,);
         }
     }
 

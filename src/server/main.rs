@@ -142,8 +142,8 @@ fn try_fill_buffer(
 enum TryOneRequestError {
     #[error("do_request failed")]
     DoRequest(#[from] DoRequestError),
-    #[error("request parsing failed")]
-    RequestParse(#[from] protocol::RequestParseError),
+    #[error("protocol error")]
+    Protocol(#[from] protocol::Error),
 }
 
 fn try_one_request(
@@ -152,23 +152,23 @@ fn try_one_request(
 ) -> Result<bool, TryOneRequestError> {
     // Parse the request
 
-    let (read, request) = match protocol::parse_request(connection.read_buf.readable()) {
+    let (parsed, message) = match protocol::parse_message(connection.read_buf.readable()) {
         Ok(request) => request,
         Err(err) => match err {
-            protocol::RequestParseError::MessageTooLong => return Err(err.into()),
-            protocol::RequestParseError::NotEnoughData => return Ok(false),
+            protocol::Error::MessageTooLong(_) => return Err(err.into()),
+            protocol::Error::InputTooShort(_) => return Ok(false),
         },
     };
 
     println!(
         "request body: {:?} ({})",
-        request,
-        String::from_utf8_lossy(request)
+        message,
+        String::from_utf8_lossy(message)
     );
 
     // Process the request
     {
-        let written = do_request(context, request, connection.write_buf.writable())?;
+        let written = do_request(context, message, connection.write_buf.writable())?;
 
         connection.write_buf.update_write_head(written);
 
@@ -179,7 +179,7 @@ fn try_one_request(
     }
 
     // "consume" the bytes of the current request
-    connection.read_buf.update_read_head(read);
+    connection.read_buf.update_read_head(parsed);
 
     // Continue the outer loop if the request was fully processed
     match connection.state {
