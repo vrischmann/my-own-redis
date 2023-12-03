@@ -54,9 +54,6 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
         buf
     };
 
-    // TODO(vincent): do this before allocating
-    if write_buf.len() > MAX_MSG_LEN {}
-
     println!("client write buf: {:?}", &write_buf);
 
     shared::write_full(fd, &write_buf)?;
