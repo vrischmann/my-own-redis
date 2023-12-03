@@ -1,8 +1,7 @@
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
-use shared::command::Command;
-use shared::protocol;
+use shared::{command, protocol};
 use shared::{ResponseCode, BUF_LEN};
 use std::collections::HashMap;
 use std::io;
@@ -204,7 +203,7 @@ fn do_request(
 
     let mut response_writer = protocol::ResponseWriter::new(write_buf);
 
-    let request = match Command::parse(body) {
+    let request = match command::parse(body) {
         Ok(request) => request,
         Err(err) => {
             println!("got error {}", err);
@@ -219,10 +218,16 @@ fn do_request(
         }
     };
 
-    match request {
-        Command::Get(args) => do_get(context, &args, &mut response_writer),
-        Command::Set(args) => do_set(context, &args, &mut response_writer),
-        Command::Del(args) => do_del(context, &args, &mut response_writer),
+    let (cmd, args) = (request[0], &request[1..]);
+
+    match cmd {
+        b"get" => do_get(context, &args, &mut response_writer),
+        b"set" => do_set(context, &args, &mut response_writer),
+        b"del" => do_del(context, &args, &mut response_writer),
+        _ => panic!(
+            "unknown command {}, should never happen",
+            String::from_utf8_lossy(cmd)
+        ),
     }
 
     response_writer.finish();

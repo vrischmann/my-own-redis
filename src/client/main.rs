@@ -1,6 +1,6 @@
 use onlyerror::Error;
 use shared::{
-    command::Command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
+    command, ResponseCode, BUF_LEN, HEADER_LEN, MAX_MSG_LEN, RESPONSE_CODE_LEN, STRING_LEN,
 };
 use std::io;
 
@@ -21,7 +21,7 @@ fn encode_string(arg: &[u8], buf: &mut Vec<u8>) {
     buf.extend_from_slice(arg);
 }
 
-fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
+fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> {
     // Write all commands
 
     let write_start = std::time::Instant::now();
@@ -33,34 +33,12 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
     write_buf.extend_from_slice(&(0 as u32).to_be_bytes()); // message length; placeholder for now
 
     for command in commands {
-        match command {
-            Command::Get(args) => {
-                let total_args = (args.len() + 1) as u32;
+        let (cmd, args) = (command[0], &command[1..]);
 
-                write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
-                encode_string(b"get", &mut write_buf);
-                for arg in args {
-                    encode_string(arg, &mut write_buf);
-                }
-            }
-            Command::Set(args) => {
-                let total_args = (args.len() + 1) as u32;
-
-                write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
-                encode_string(b"set", &mut write_buf);
-                for arg in args {
-                    encode_string(arg, &mut write_buf);
-                }
-            }
-            Command::Del(args) => {
-                let total_args = (args.len() + 1) as u32;
-
-                write_buf.extend_from_slice(&total_args.to_be_bytes()); // number of commands
-                encode_string(b"del", &mut write_buf);
-                for arg in args {
-                    encode_string(arg, &mut write_buf);
-                }
-            }
+        write_buf.extend_from_slice(&(command.len() as u32).to_be_bytes()); // number of commands
+        encode_string(cmd, &mut write_buf);
+        for arg in args {
+            encode_string(arg, &mut write_buf);
         }
     }
 
@@ -130,7 +108,7 @@ fn execute_commands(fd: i32, commands: &[Command]) -> Result<(), QueryError> {
                 "server says [{}]: {} (len={})",
                 response_code,
                 String::from_utf8_lossy(body),
-                data.len(),
+                body.len(),
             );
         } else {
             println!("server says [{}]", response_code);
@@ -155,19 +133,13 @@ fn main() -> anyhow::Result<()> {
 
     // Remove the binary name
     args.remove(0);
+    // Construct the command and args
+    let command: Vec<&[u8]> = args.iter().map(|v| v.as_ref()).collect();
 
-    let command_str = args.remove(0);
-    let remaining_args = args.iter().map(|v| v.as_ref()).collect();
-
-    let command = match command_str.as_str() {
-        "get" => Command::Get(remaining_args),
-        "set" => Command::Set(remaining_args),
-        "del" => Command::Del(remaining_args),
-        _ => {
-            println!("Usage: my-own-redis <command> [<arg> ...]");
-            std::process::exit(1);
-        }
-    };
+    if !command::is_valid(command[0]) {
+        println!("Usage: my-own-redis <command> [<arg> ...]");
+        std::process::exit(1);
+    }
 
     // Create socket
 
