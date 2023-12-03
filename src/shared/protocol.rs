@@ -10,7 +10,7 @@ pub enum RequestParseError {
     MessageTooLong,
 }
 
-pub fn parse_request(buf: &[u8]) -> Result<&[u8], RequestParseError> {
+pub fn parse_request(buf: &[u8]) -> Result<(usize, &[u8]), RequestParseError> {
     if buf.len() < HEADER_LEN {
         return Err(RequestParseError::NotEnoughData);
     }
@@ -30,8 +30,9 @@ pub fn parse_request(buf: &[u8]) -> Result<&[u8], RequestParseError> {
     }
 
     let body = &buf[HEADER_LEN..HEADER_LEN + message_len];
+    let read = HEADER_LEN + body.len();
 
-    Ok(body)
+    Ok((read, body))
 }
 
 pub struct ResponseWriter<'a> {
@@ -87,7 +88,8 @@ mod tests {
     fn reader() {
         let data = b"\x00\x00\x00\x06foobar";
 
-        let request = parse_request(data).unwrap();
+        let (read, request) = parse_request(data).unwrap();
+        assert_eq!(10, read);
         assert_eq!(b"foobar", request);
     }
 

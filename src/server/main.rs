@@ -2,7 +2,7 @@ use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
 use shared::protocol;
-use shared::{Command, ResponseCode, BUF_LEN, HEADER_LEN};
+use shared::{Command, ResponseCode, BUF_LEN};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
@@ -152,7 +152,7 @@ fn try_one_request(
 ) -> Result<bool, TryOneRequestError> {
     // Parse the request
 
-    let request = match protocol::parse_request(connection.read_buf.readable()) {
+    let (read, request) = match protocol::parse_request(connection.read_buf.readable()) {
         Ok(request) => request,
         Err(err) => match err {
             protocol::RequestParseError::MessageTooLong => return Err(err.into()),
@@ -179,9 +179,7 @@ fn try_one_request(
     }
 
     // "consume" the bytes of the current request
-    connection
-        .read_buf
-        .update_read_head(HEADER_LEN + request.len());
+    connection.read_buf.update_read_head(read);
 
     // Continue the outer loop if the request was fully processed
     match connection.state {
