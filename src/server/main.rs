@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::io;
 use std::mem;
 
+mod hash_map;
+mod linked_list;
+
 struct Context {
     data: HashMap<String, String>,
 }
