@@ -77,7 +77,7 @@ where
     }
 
     fn get(&self, key: &K) -> Option<&V> {
-        let pos = (calculate_hash(key) & self.mask) as usize;
+        let pos = (calculate_hash(&key) & self.mask) as usize;
 
         // NOTE(vincent): safe because we always initialize `data`
         let list = self.data.get(pos).unwrap();
@@ -85,6 +85,10 @@ where
         list.iter()
             .find(|entry| &entry.key == key)
             .map(|entry| &entry.value)
+    }
+
+    fn remove<Q>(&mut self, key: &Q) -> Option<V> {
+        None
     }
 }
 
@@ -124,7 +128,7 @@ fn dump_superhashmap<K: Hash + Eq + Debug, V: Eq + Debug>(map: &SuperHashMap<K, 
 }
 
 #[derive(Debug)]
-struct SuperHashMap<K, V>
+pub struct SuperHashMap<K, V>
 where
     K: Hash + Eq,
     V: Eq,
@@ -140,7 +144,7 @@ where
     K: Hash + Eq + Debug,
     V: Eq + Debug,
 {
-    fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
             map1: HashMap::new(capacity),
             map2: None,
@@ -148,7 +152,7 @@ where
         }
     }
 
-    fn get(&self, key: &K) -> Option<&V> {
+    pub fn get(&self, key: &K) -> Option<&V> {
         if let Some(value) = self.map1.get(key) {
             return Some(value);
         }
@@ -160,7 +164,7 @@ where
         }
     }
 
-    fn insert(&mut self, key: K, value: V) {
+    pub fn insert(&mut self, key: K, value: V) {
         self.map1.insert(key, value);
 
         {
@@ -171,6 +175,14 @@ where
         }
 
         self.help_resizing();
+    }
+
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        if let Some(value) = self.map1.remove(key) {
+            return Some(value);
+        }
+
+        self.map2.as_mut().map(|m| m.remove(key)).flatten()
     }
 
     fn start_resizing(&mut self) {
@@ -255,6 +267,19 @@ mod tests {
             let key = format!("foo{}", i);
             assert_eq!(map.get(&key), Some(&i));
         }
+
+        // dump_superhashmap(&map);
+    }
+
+    #[test]
+    fn super_hashmap_remove() {
+        let mut map = SuperHashMap::new(1);
+
+        map.insert("foobar", "barbaz");
+        map.insert("hello", "world");
+
+        assert_eq!(map.remove(&"foobar"), Some("barbaz"));
+        assert_eq!(map.remove(&"foobar"), None);
 
         // dump_superhashmap(&map);
     }

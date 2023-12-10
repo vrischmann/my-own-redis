@@ -1,3 +1,4 @@
+use hash_map::SuperHashMap;
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
@@ -12,7 +13,7 @@ mod hash_map;
 mod linked_list;
 
 struct Context {
-    data: HashMap<String, String>,
+    data: SuperHashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -486,7 +487,7 @@ fn main() -> anyhow::Result<()> {
     // Event loop
 
     let mut context = Context {
-        data: HashMap::new(),
+        data: SuperHashMap::new(10),
     };
 
     let mut connections: HashMap<i32, Connection> = HashMap::new();
