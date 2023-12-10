@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -13,31 +14,19 @@ fn calculate_hash<T: Hash>(value: &T) -> u64 {
 }
 
 #[derive(Debug)]
-struct Entry<K, V>
-where
-    K: Hash + Eq,
-    V: Eq,
-{
+struct Entry<K, V> {
     key: K,
     value: V,
 }
 
 #[derive(Debug)]
-struct HashMap<K, V>
-where
-    K: Hash + Eq,
-    V: Eq,
-{
+struct HashMap<K, V> {
     data: Vec<List<Entry<K, V>>>,
     size: usize,
     mask: u64,
 }
 
-impl<K, V> HashMap<K, V>
-where
-    K: Hash + Eq,
-    V: Eq,
-{
+impl<K, V> HashMap<K, V> {
     fn new(size: usize) -> Self {
         assert!(size > 0 && ((size - 1) & size) == 0);
 
@@ -57,7 +46,10 @@ where
         self.size
     }
 
-    fn insert(&mut self, key: K, value: V) {
+    fn insert(&mut self, key: K, value: V)
+    where
+        K: Hash + Eq,
+    {
         let pos = (calculate_hash(&key) & self.mask) as usize;
 
         // NOTE(vincent): safe because we always initialize `data`
@@ -76,18 +68,26 @@ where
         self.size += 1
     }
 
-    fn get(&self, key: &K) -> Option<&V> {
+    fn get<Q>(&self, key: Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         let pos = (calculate_hash(&key) & self.mask) as usize;
 
         // NOTE(vincent): safe because we always initialize `data`
         let list = self.data.get(pos).unwrap();
 
         list.iter()
-            .find(|entry| &entry.key == key)
+            .find(|entry| entry.key.borrow() == &key)
             .map(|entry| &entry.value)
     }
 
-    fn remove<Q>(&mut self, key: &Q) -> Option<V> {
+    fn remove<Q>(&mut self, key: Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         None
     }
 }
@@ -128,11 +128,7 @@ fn dump_superhashmap<K: Hash + Eq + Debug, V: Eq + Debug>(map: &SuperHashMap<K, 
 }
 
 #[derive(Debug)]
-pub struct SuperHashMap<K, V>
-where
-    K: Hash + Eq,
-    V: Eq,
-{
+pub struct SuperHashMap<K, V> {
     map1: HashMap<K, V>,
     map2: Option<HashMap<K, V>>,
 
@@ -141,8 +137,7 @@ where
 
 impl<K, V> SuperHashMap<K, V>
 where
-    K: Hash + Eq + Debug,
-    V: Eq + Debug,
+    K: Hash + Eq,
 {
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -152,7 +147,11 @@ where
         }
     }
 
-    pub fn get(&self, key: &K) -> Option<&V> {
+    pub fn get<Q>(&self, key: Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         if let Some(value) = self.map1.get(key) {
             return Some(value);
         }
@@ -164,7 +163,10 @@ where
         }
     }
 
-    pub fn insert(&mut self, key: K, value: V) {
+    pub fn insert(&mut self, key: K, value: V)
+    where
+        K: Hash + Eq,
+    {
         self.map1.insert(key, value);
 
         {
@@ -177,7 +179,11 @@ where
         self.help_resizing();
     }
 
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    pub fn remove<Q>(&mut self, key: Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
         if let Some(value) = self.map1.remove(key) {
             return Some(value);
         }
@@ -236,9 +242,9 @@ mod tests {
         table.insert("barbaz", "hello");
         table.insert("bazqux", "salut");
 
-        assert_eq!(table.get(&"foobar"), Some(&"hallo"));
-        assert_eq!(table.get(&"barbaz"), Some(&"hello"));
-        assert_eq!(table.get(&"bazqux"), Some(&"salut"));
+        assert_eq!(table.get("foobar"), Some(&"hallo"));
+        assert_eq!(table.get("barbaz"), Some(&"hello"));
+        assert_eq!(table.get("bazqux"), Some(&"salut"));
     }
 
     #[test]
@@ -249,7 +255,7 @@ mod tests {
         table.insert("foobar", "hullo");
         table.insert("foobar", "hello");
 
-        assert_eq!(table.get(&"foobar"), Some(&"hello"));
+        assert_eq!(table.get("foobar"), Some(&"hello"));
         assert_eq!(table.len(), 1);
     }
 
@@ -265,7 +271,7 @@ mod tests {
 
         for i in 0..NB {
             let key = format!("foo{}", i);
-            assert_eq!(map.get(&key), Some(&i));
+            assert_eq!(map.get(key), Some(&i));
         }
 
         // dump_superhashmap(&map);
@@ -278,8 +284,8 @@ mod tests {
         map.insert("foobar", "barbaz");
         map.insert("hello", "world");
 
-        assert_eq!(map.remove(&"foobar"), Some("barbaz"));
-        assert_eq!(map.remove(&"foobar"), None);
+        assert_eq!(map.remove("foobar"), Some("barbaz"));
+        assert_eq!(map.remove("foobar"), None);
 
         // dump_superhashmap(&map);
     }
