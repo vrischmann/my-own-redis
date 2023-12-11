@@ -4,8 +4,6 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::mem;
 
-use crate::linked_list::List;
-
 fn calculate_hash<T: Hash>(value: &T) -> u64 {
     let mut s = DefaultHasher::new();
 
@@ -21,7 +19,7 @@ struct Entry<K, V> {
 
 #[derive(Debug)]
 struct HashMap<K, V> {
-    data: Vec<List<Entry<K, V>>>,
+    data: Vec<Vec<Entry<K, V>>>,
     size: usize,
     mask: u64,
 }
@@ -32,7 +30,7 @@ impl<K, V> HashMap<K, V> {
 
         let mut data = Vec::with_capacity(size);
         for _ in 0..size {
-            data.push(List::new());
+            data.push(Vec::new());
         }
 
         Self {
@@ -68,10 +66,10 @@ impl<K, V> HashMap<K, V> {
         self.size += 1
     }
 
-    fn get<Q>(&self, key: Q) -> Option<&V>
+    fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         let pos = (calculate_hash(&key) & self.mask) as usize;
 
@@ -79,15 +77,27 @@ impl<K, V> HashMap<K, V> {
         let list = self.data.get(pos).unwrap();
 
         list.iter()
-            .find(|entry| entry.key.borrow() == &key)
+            .find(|entry| entry.key.borrow() == key)
             .map(|entry| &entry.value)
     }
 
-    fn remove<Q>(&mut self, key: Q) -> Option<V>
+    fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
+        let pos = (calculate_hash(&key) & self.mask) as usize;
+
+        // NOTE(vincent): safe because we always initialize `data`
+        let list = self.data.get_mut(pos).unwrap();
+
+        for (i, entry) in list.iter().enumerate() {
+            if entry.key.borrow() == key {
+                let entry = list.swap_remove(i);
+                return Some(entry.value);
+            }
+        }
+
         None
     }
 }
@@ -124,7 +134,9 @@ fn dump_superhashmap<K: Hash + Eq + Debug, V: Eq + Debug>(map: &SuperHashMap<K, 
     };
 
     dump("map1", &map.map1);
-    dump("map2", &map.map1)
+    if let Some(ref m) = map.map2 {
+        dump("map2", m);
+    }
 }
 
 #[derive(Debug)]
@@ -147,10 +159,10 @@ where
         }
     }
 
-    pub fn get<Q>(&self, key: Q) -> Option<&V>
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         if let Some(value) = self.map1.get(key) {
             return Some(value);
@@ -179,10 +191,10 @@ where
         self.help_resizing();
     }
 
-    pub fn remove<Q>(&mut self, key: Q) -> Option<V>
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         if let Some(value) = self.map1.remove(key) {
             return Some(value);
@@ -232,6 +244,8 @@ const MAX_LOAD_FACTOR: usize = 8;
 
 #[cfg(test)]
 mod tests {
+    use crate::hash_map::dump_superhashmap;
+
     use super::{HashMap, SuperHashMap};
 
     #[test]
@@ -271,7 +285,7 @@ mod tests {
 
         for i in 0..NB {
             let key = format!("foo{}", i);
-            assert_eq!(map.get(key), Some(&i));
+            assert_eq!(map.get(&key), Some(&i));
         }
 
         // dump_superhashmap(&map);
@@ -284,9 +298,11 @@ mod tests {
         map.insert("foobar", "barbaz");
         map.insert("hello", "world");
 
+        dump_superhashmap(&map);
+
         assert_eq!(map.remove("foobar"), Some("barbaz"));
         assert_eq!(map.remove("foobar"), None);
 
-        // dump_superhashmap(&map);
+        dump_superhashmap(&map);
     }
 }
