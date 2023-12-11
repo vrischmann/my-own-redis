@@ -22,24 +22,19 @@ pub fn parse_message(buf: &[u8]) -> Result<(usize, &[u8])> {
         return Err(Error::InputTooShort(buf.len()));
     }
 
-    let message_len = {
-        let header_data = &buf[0..HEADER_LEN];
-        let len = u32::from_be_bytes(header_data.try_into().unwrap());
+    let mut reader = Reader::new(buf);
 
-        len as usize
-    };
+    let message_len = reader.read_u32()? as usize;
     if message_len > MAX_MSG_LEN {
         return Err(Error::MessageTooLong(message_len));
     }
 
-    if buf.len() < HEADER_LEN + message_len {
-        return Err(Error::InputTooShort(buf.len()));
+    let remaining = reader.remaining();
+    if remaining.len() < message_len {
+        return Err(Error::InputTooShort(remaining.len()));
     }
 
-    let body = &buf[HEADER_LEN..HEADER_LEN + message_len];
-    let read = HEADER_LEN + body.len();
-
-    Ok((read, body))
+    Ok((buf.len(), remaining))
 }
 
 pub struct Reader<'a> {
@@ -54,6 +49,10 @@ impl<'a> Reader<'a> {
 
     pub fn has_more(&self) -> bool {
         self.pos < self.buf.len()
+    }
+
+    pub fn remaining(self) -> &'a [u8] {
+        &self.buf[self.pos..]
     }
 
     pub fn read_u32(&mut self) -> Result<u32> {

@@ -486,7 +486,7 @@ fn main() -> anyhow::Result<()> {
     // Event loop
 
     let mut context = Context {
-        data: SuperHashMap::new(10),
+        data: SuperHashMap::new(16),
     };
 
     let mut connections: HashMap<i32, Connection> = HashMap::new();
