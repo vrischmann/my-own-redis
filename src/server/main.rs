@@ -1,14 +1,15 @@
+use connection_buffer::ConnectionBuffer;
 use hash_map::SuperHashMap;
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
 use onlyerror::Error;
-use shared::protocol::BUF_LEN;
 use shared::ResponseCode;
 use shared::{command, protocol};
 use std::collections::HashMap;
 use std::io;
 use std::mem;
 
+mod connection_buffer;
 mod hash_map;
 
 struct Context {
@@ -19,60 +20,6 @@ struct Context {
 enum State {
     ReadRequest,
     SendResponse,
-}
-
-struct ConnectionBuffer {
-    data: Vec<u8>,
-    write_head: usize,
-    read_head: usize,
-}
-
-impl ConnectionBuffer {
-    fn new() -> Self {
-        let mut data = Vec::with_capacity(BUF_LEN);
-        data.resize(BUF_LEN, 0xaa);
-
-        Self {
-            data,
-            write_head: 0,
-            read_head: 0,
-        }
-    }
-
-    fn writable(&mut self) -> &mut [u8] {
-        &mut self.data[self.write_head..]
-    }
-
-    fn readable(&self) -> &[u8] {
-        &self.data[self.read_head..self.write_head]
-    }
-
-    fn update_write_head(&mut self, n: usize) {
-        self.write_head += n;
-        assert!(self.write_head < self.data.len());
-    }
-
-    fn update_read_head(&mut self, n: usize) {
-        self.read_head += n;
-        assert!(self.read_head <= self.write_head);
-    }
-
-    fn remove_processed(&mut self) {
-        let remaining = self.write_head - self.read_head;
-        if remaining <= 0 {
-            return;
-        }
-
-        let next = self.read_head;
-
-        println!(
-            "move bytes from {:?} to the start of the read buf",
-            next..next + remaining
-        );
-
-        self.data.copy_within(next..next + remaining, 0);
-        self.read_head = 0;
-    }
 }
 
 struct Connection {
@@ -418,12 +365,11 @@ fn try_flush_buffer(connection: &mut Connection) -> io::Result<bool> {
 
     connection.write_buf.update_read_head(written);
 
-    if connection.write_buf.read_head == connection.write_buf.write_head {
+    if connection.write_buf.is_empty() {
         // Response was fully sent, change state back
 
         connection.state = State::ReadRequest;
-        connection.write_buf.read_head = 0;
-        connection.write_buf.write_head = 0;
+        connection.write_buf.reset();
 
         return Ok(false);
     }
