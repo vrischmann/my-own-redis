@@ -88,7 +88,35 @@ impl<'a> Reader<'a> {
     }
 }
 
-//
+/// Wraps a buffer and provides methods to serialize data to the buffer.
+///
+/// # Examples
+///
+/// ```
+/// # use shared::protocol::{BUF_LEN, Writer};
+/// let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
+///
+/// let written = {
+///     let mut writer = Writer::new(&mut buf);
+///     writer.push_u32(2 as u32);
+///     writer.push_string("hello");
+///     writer.push_string("hallo");
+///     writer.finish();
+///     writer.written()
+/// };
+///
+/// assert_eq!(
+///     &[
+///         0x00, 0x00, 0x00, 0x16, // message length in bytes
+///         0x00, 0x00, 0x00, 0x02, // number of strings
+///         0x00, 0x00, 0x00, 0x05, // first string length in bytes
+///         0x68, 0x65, 0x6c, 0x6c, 0x6f, // first string data
+///         0x00, 0x00, 0x00, 0x05, // second string length in bytes
+///         0x68, 0x61, 0x6c, 0x6c, 0x6f, // second string data
+///     ],
+///     &buf[0..written],
+/// );
+/// ```
 pub struct Writer<'a> {
     buf: &'a mut [u8],
     pos: usize,
@@ -154,7 +182,7 @@ pub fn buffer_size_needed(commands: &[Vec<&[u8]>]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use crate::ResponseCode;
+    use crate::{protocol::BUF_LEN, ResponseCode};
 
     use super::{parse_message, Writer};
 
@@ -169,7 +197,7 @@ mod tests {
 
     #[test]
     fn writer() {
-        let mut buf: [u8; 1024] = [0; 1024];
+        let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
 
         let written = {
             let mut writer = Writer::new(&mut buf);
