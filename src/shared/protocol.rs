@@ -3,7 +3,6 @@ use onlyerror::Error;
 const HEADER_LEN: usize = 4;
 pub const MAX_MSG_LEN: usize = 4096;
 pub const BUF_LEN: usize = HEADER_LEN + MAX_MSG_LEN;
-const RESPONSE_CODE_LEN: usize = 4;
 const INTEGER_LEN: usize = 4;
 const STRING_LEN: usize = 4;
 
@@ -18,6 +17,8 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 pub fn parse_message(buf: &[u8]) -> Result<(usize, &[u8])> {
+    println!("buf: {:?}", buf);
+
     if buf.len() < HEADER_LEN {
         return Err(Error::InputTooShort(buf.len()));
     }
@@ -87,6 +88,7 @@ impl<'a> Reader<'a> {
     }
 }
 
+//
 pub struct Writer<'a> {
     buf: &'a mut [u8],
     pos: usize,
@@ -94,11 +96,11 @@ pub struct Writer<'a> {
 
 impl<'a> Writer<'a> {
     pub fn new(buf: &'a mut [u8]) -> Self {
-        assert!(buf.len() >= HEADER_LEN + RESPONSE_CODE_LEN);
+        assert!(buf.len() == BUF_LEN);
 
         Self {
             buf,
-            pos: HEADER_LEN + RESPONSE_CODE_LEN,
+            pos: HEADER_LEN, // offset 4 bytes to keep space for the length when calling finish()
         }
     }
 
@@ -111,8 +113,11 @@ impl<'a> Writer<'a> {
     }
 
     pub fn push_u32<T: Into<u32>>(&mut self, value: T) {
-        let buf = &mut self.buf[HEADER_LEN..HEADER_LEN + RESPONSE_CODE_LEN];
+        let buf = &mut self.buf[self.pos..self.pos + INTEGER_LEN];
+
         buf.copy_from_slice(&(value.into() as u32).to_be_bytes());
+
+        self.pos += INTEGER_LEN
     }
 
     pub fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
