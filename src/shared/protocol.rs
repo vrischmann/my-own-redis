@@ -93,7 +93,7 @@ impl<'a> Reader<'a> {
 /// # Examples
 ///
 /// ```
-/// # use shared::protocol::{BUF_LEN, Writer};
+/// use shared::protocol::{BUF_LEN, Writer};
 /// let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
 ///
 /// let written = {
@@ -110,9 +110,9 @@ impl<'a> Reader<'a> {
 ///         0x00, 0x00, 0x00, 0x16, // message length in bytes
 ///         0x00, 0x00, 0x00, 0x02, // number of strings
 ///         0x00, 0x00, 0x00, 0x05, // first string length in bytes
-///         0x68, 0x65, 0x6c, 0x6c, 0x6f, // first string data
+///         b'h', b'e', b'l', b'l', b'o', // first string data
 ///         0x00, 0x00, 0x00, 0x05, // second string length in bytes
-///         0x68, 0x61, 0x6c, 0x6c, 0x6f, // second string data
+///         b'h', b'a', b'l', b'l', b'o', // second string data
 ///     ],
 ///     &buf[0..written],
 /// );
@@ -140,6 +140,26 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Finish writing. This will write the message length in the first 4 bytes of the buffer.
+    /// Call this when you're done writing your message.
+    ///
+    /// # Examples
+    /// ```
+    /// # use shared::protocol::{BUF_LEN, Writer};
+    /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    ///
+    /// let mut writer = Writer::new(&mut buf);
+    /// writer.push_u32(2 as u32);
+    /// writer.finish();
+    ///
+    /// assert_eq!(
+    ///     &[
+    ///         0x00, 0x00, 0x00, 0x04, // message length in bytes
+    ///         0x00, 0x00, 0x00, 0x02, // u32
+    ///     ],
+    ///     &buf[0..8],
+    /// );
+    /// ```
     pub fn finish(&mut self) {
         let buf = &mut self.buf[0..HEADER_LEN];
 
@@ -148,6 +168,25 @@ impl<'a> Writer<'a> {
         buf.copy_from_slice(&(written as u32).to_be_bytes());
     }
 
+    /// Write a u32 to the buffer, encoded as 4 using big-endian encoding.
+    ///
+    /// # Examples
+    /// ```
+    /// # use shared::protocol::{BUF_LEN, Writer};
+    /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    ///
+    /// let mut writer = Writer::new(&mut buf);
+    /// writer.push_u32(20 as u32);
+    /// writer.finish();
+    ///
+    /// assert_eq!(
+    ///     &[
+    ///         0x00, 0x00, 0x00, 0x04, // message length in bytes
+    ///         0x00, 0x00, 0x00, 0x14, // u32
+    ///     ],
+    ///     &buf[0..8],
+    /// );
+    /// ```
     pub fn push_u32<T: Into<u32>>(&mut self, value: T) {
         let buf = &mut self.buf[self.pos..self.pos + INTEGER_LEN];
 
@@ -156,6 +195,29 @@ impl<'a> Writer<'a> {
         self.pos += INTEGER_LEN
     }
 
+    /// Write a string to the buffer.
+    /// A string is a made of two parts:
+    /// * a u32 representing its length
+    /// * `length` bytes of data
+    ///
+    /// # Examples
+    /// ```
+    /// # use shared::protocol::{BUF_LEN, Writer};
+    /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    ///
+    /// let mut writer = Writer::new(&mut buf);
+    /// writer.push_string("foobar");
+    /// writer.finish();
+    ///
+    /// assert_eq!(
+    ///     &[
+    ///         0x00, 0x00, 0x00, 0x0A, // message length in bytes
+    ///         0x00, 0x00, 0x00, 0x06, // string length
+    ///         b'f', b'o', b'o', b'b', b'a', b'r', // string data
+    ///     ],
+    ///     &buf[0..14],
+    /// );
+    /// ```
     pub fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
         let bytes = value.as_ref();
         let buf = &mut self.buf[self.pos..];
