@@ -123,6 +123,14 @@ pub struct Writer<'a> {
 }
 
 impl<'a> Writer<'a> {
+    /// Creates a new `Writer` wrapping the provided slice.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use shared::protocol::{BUF_LEN, Writer};
+    /// let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    ///
+    /// let mut writer = Writer::new(&mut buf);
     pub fn new(buf: &'a mut [u8]) -> Self {
         assert!(buf.len() == BUF_LEN);
 
