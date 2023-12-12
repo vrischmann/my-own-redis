@@ -230,6 +230,20 @@ impl<'a> Writer<'a> {
         self.pos += STRING_LEN + bytes.len()
     }
 
+    /// Return the number of bytes written into the buffer
+    /// Note that there's always 4 bytes written for the message length, even if you don't push anything.
+    ///
+    /// # Examples
+    /// ```
+    /// # use shared::protocol::{BUF_LEN, Writer};
+    /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
+    ///
+    /// let mut writer = Writer::new(&mut buf);
+    /// writer.push_string("foobar");
+    /// writer.finish();
+    ///
+    /// assert_eq!(14, writer.written());
+    /// ```
     pub fn written(&self) -> usize {
         self.pos
     }
