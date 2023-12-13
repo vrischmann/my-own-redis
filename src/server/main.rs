@@ -1,4 +1,5 @@
 use connection_buffer::ConnectionBuffer;
+use error_iter::ErrorIter as _;
 use hash_map::SuperHashMap;
 use libc::{POLLERR, POLLIN, POLLOUT};
 use libc::{SOMAXCONN, SO_REUSEADDR};
@@ -106,7 +107,10 @@ fn try_one_request(
     let (parsed, message) = match protocol::parse_message(connection.read_buf.readable()) {
         Ok(request) => request,
         Err(err) => match err {
-            protocol::Error::MessageTooLong(_) => return Err(err.into()),
+            protocol::Error::MessageTooLong(_)
+            | protocol::Error::InvalidDataType(_)
+            | protocol::Error::InvalidResponseCode(_)
+            | protocol::Error::IncoherentDataType { .. } => return Err(err.into()),
             protocol::Error::InputTooShort(_) => return Ok(false),
         },
     };
@@ -157,28 +161,31 @@ fn do_request(
     let request = match command::parse(body) {
         Ok(request) => request,
         Err(err) => {
-            println!("got error {}", err);
+            eprintln!("got error {}", err);
+            for source in err.sources().skip(1) {
+                eprintln!("  Caused by: {source}");
+            }
 
-            let resp = "Unknown command";
-
-            writer.push_u32(ResponseCode::Err);
-            writer.push_string(resp);
-
+            writer.push_err(ResponseCode::Unknown, "internal error");
             writer.finish();
+
             return Ok(writer.written());
         }
     };
 
     let (cmd, args) = (request[0], &request[1..]);
 
-    match cmd {
-        b"get" => do_get(context, &args, &mut writer),
-        b"set" => do_set(context, &args, &mut writer),
-        b"del" => do_del(context, &args, &mut writer),
-        _ => panic!(
-            "unknown command {}, should never happen",
-            String::from_utf8_lossy(cmd)
-        ),
+    if cmd == b"get" && args.len() >= 1 {
+        do_get(context, &args, &mut writer);
+    } else if cmd == b"set" && args.len() >= 2 {
+        do_set(context, &args, &mut writer);
+    } else if cmd == b"del" && args.len() >= 1 {
+        do_del(context, &args, &mut writer);
+    } else {
+        writer.push_err(
+            ResponseCode::Unknown,
+            format!("invalid command {}", String::from_utf8_lossy(cmd)),
+        );
     }
 
     writer.finish();
@@ -188,33 +195,19 @@ fn do_request(
 fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_get; args: {:?}", args);
 
-    if args.len() <= 0 {
-        let resp = "no key provided";
-
-        response_writer.push_u32(ResponseCode::Err);
-        response_writer.push_string(resp);
-
-        return;
-    }
-
     let key = match std::str::from_utf8(args[0]) {
         Ok(key) => key,
         Err(_) => {
-            let resp = "invalid key";
-
-            response_writer.push_u32(ResponseCode::Err);
-            response_writer.push_string(resp);
-
+            response_writer.push_err(ResponseCode::Unknown, "invalid key");
             return;
         }
     };
 
     match context.data.get(key) {
         None => {
-            response_writer.push_u32(ResponseCode::Nx);
+            response_writer.push_nil();
         }
         Some(value) => {
-            response_writer.push_u32(ResponseCode::Ok);
             response_writer.push_string(value);
         }
     }
@@ -223,24 +216,11 @@ fn do_get(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
 fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_set, args: {:?}", args);
 
-    if args.len() != 2 {
-        let resp = "no key and value provided";
-
-        response_writer.push_u32(ResponseCode::Err);
-        response_writer.push_string(resp);
-
-        return;
-    }
-
     // TODO(vincent): avoid cloning ?
     let key = match String::from_utf8(args[0].to_vec()) {
         Ok(key) => key,
         Err(_) => {
-            let resp = "invalid key";
-
-            response_writer.push_u32(ResponseCode::Err);
-            response_writer.push_string(resp);
-
+            response_writer.push_err(ResponseCode::Unknown, "invalid key");
             return;
         }
     };
@@ -248,51 +228,34 @@ fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
     let value = match String::from_utf8(args[1].to_vec()) {
         Ok(value) => value,
         Err(_) => {
-            let resp = "invalid key";
-
-            response_writer.push_u32(ResponseCode::Err);
-            response_writer.push_string(resp);
-
+            response_writer.push_err(ResponseCode::Unknown, "invalid key");
             return;
         }
     };
 
     context.data.insert(key, value);
 
-    response_writer.push_u32(ResponseCode::Ok);
+    response_writer.push_nil();
 }
 
 fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_del, args: {:?}", args);
 
-    if args.len() != 1 {
-        let resp = "no key provided";
-
-        response_writer.push_u32(ResponseCode::Err);
-        response_writer.push_string(resp);
-
-        return;
-    }
-
     // TODO(vincent): avoid cloning ?
     let key = match std::str::from_utf8(args[0]) {
         Ok(key) => key,
         Err(_) => {
-            let resp = "invalid key";
-
-            response_writer.push_u32(ResponseCode::Err);
-            response_writer.push_string(resp);
-
+            response_writer.push_err(ResponseCode::Unknown, "invalid key");
             return;
         }
     };
 
     match context.data.remove(key) {
         None => {
-            response_writer.push_u32(ResponseCode::Nx);
+            response_writer.push_int(0);
         }
         Some(_) => {
-            response_writer.push_u32(ResponseCode::Ok);
+            response_writer.push_int(1);
         }
     }
 }
@@ -333,7 +296,7 @@ fn do_send_responses(connection: &mut Connection) -> ConnectionAction {
     loop {
         let res = match try_flush_buffer(connection) {
             Err(err) => {
-                println!("got error {}", err);
+                println!("do_send_responses: got error {}", err);
 
                 return ConnectionAction::Delete;
             }

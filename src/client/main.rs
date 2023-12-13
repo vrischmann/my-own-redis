@@ -1,9 +1,5 @@
 use onlyerror::Error;
-use shared::{
-    command,
-    protocol::{self, BUF_LEN, MAX_MSG_LEN},
-    ResponseCode,
-};
+use shared::protocol::{self, BUF_LEN, MAX_MSG_LEN};
 use std::io;
 
 #[derive(Error, Debug)]
@@ -32,6 +28,8 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
 
     println!("writing all commands: {:?}", commands);
 
+    let n_args: usize = commands.iter().map(|command| command.len()).sum();
+
     let write_buf = {
         let mut buf = Vec::with_capacity(BUF_LEN);
         buf.resize(BUF_LEN, 0xAA);
@@ -39,10 +37,11 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
         let written = {
             let mut writer = shared::protocol::Writer::new(&mut buf);
 
+            writer.push_int(n_args);
+
             for command in commands {
                 let (cmd, args) = (command[0], &command[1..]);
 
-                writer.push_u32(command.len() as u32);
                 writer.push_string(cmd);
                 for arg in args {
                     writer.push_string(arg);
@@ -84,19 +83,31 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
 
         let mut reader = protocol::Reader::new(message);
 
-        let response_code: ResponseCode = reader.read_u32()?.try_into().unwrap();
+        match reader.read_data_type()? {
+            protocol::DataType::Nil => {
+                println!("nil");
+            }
+            protocol::DataType::Err => {
+                let (response_code, message) = reader.read_err()?;
 
-        if reader.has_more() {
-            let body = reader.read_string()?;
+                println!("response code: {}", response_code);
+                println!("message: {}", String::from_utf8_lossy(message));
+            }
+            protocol::DataType::Str => {
+                let body = reader.read_string()?;
 
-            println!(
-                "server says [{}]: {} (len={})",
-                response_code,
-                String::from_utf8_lossy(body),
-                body.len(),
-            );
-        } else {
-            println!("server says [{}] (no body)", response_code,);
+                println!(
+                    "server says: {} (len={})",
+                    String::from_utf8_lossy(body),
+                    body.len(),
+                );
+            }
+            protocol::DataType::Int => {
+                todo!();
+            }
+            protocol::DataType::Arr => {
+                todo!();
+            }
         }
     }
 
@@ -121,10 +132,10 @@ fn main() -> anyhow::Result<()> {
     // Construct the command and args
     let command: Vec<&[u8]> = args.iter().map(|v| v.as_ref()).collect();
 
-    if !command::is_valid(command[0]) {
-        println!("Usage: my-own-redis <command> [<arg> ...]");
-        std::process::exit(1);
-    }
+    // if !command::is_valid(command[0]) {
+    //     println!("Usage: my-own-redis <command> [<arg> ...]");
+    //     std::process::exit(1);
+    // }
 
     // Create socket
 

@@ -6,18 +6,18 @@ use crate::protocol;
 pub enum ParseCommandError {
     #[error("protocol error")]
     Protocol(#[from] protocol::Error),
-    #[error("unknown command '{0}")]
-    UnknownCommand(String),
 }
 
 pub type ParsedCommand<'a> = Vec<&'a [u8]>;
 
 pub fn parse<'a>(body: &'a [u8]) -> Result<ParsedCommand<'a>, ParseCommandError> {
+    println!("==> body: {:?}", body);
+
     let mut reader = protocol::Reader::new(body);
 
     // 1. Parse the number of arguments.
 
-    let mut n_args = reader.read_u32()?;
+    let mut n_args = reader.read_int()?;
 
     // 2. Parse each argument
 
@@ -28,11 +28,6 @@ pub fn parse<'a>(body: &'a [u8]) -> Result<ParsedCommand<'a>, ParseCommandError>
         n_args -= 1;
 
         args.push(arg);
-    }
-
-    if !KNOWN_COMMANDS.contains(&args[0]) {
-        let cmd = String::from_utf8_lossy(args[0]).to_string();
-        return Err(ParseCommandError::UnknownCommand(cmd));
     }
 
     Ok(args)

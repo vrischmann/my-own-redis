@@ -17,5 +17,6 @@ path = "src/client/main.rs"
 
 [dependencies]
 anyhow = "1.0.75"
+error-iter = "0.4.1"
 libc = "0.2.150"
 onlyerror = "0.1.3"

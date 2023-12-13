@@ -200,10 +200,10 @@ pub fn write_full(fd: i32, buf: &[u8]) -> io::Result<()> {
 }
 
 #[derive(Copy, Clone)]
+#[repr(u32)]
 pub enum ResponseCode {
-    Ok = 0,
-    Err = 1,
-    Nx = 2,
+    Unknown = 100,
+    TooBig = 101,
 }
 
 impl From<ResponseCode> for u32 {
@@ -215,22 +215,8 @@ impl From<ResponseCode> for u32 {
 impl fmt::Display for ResponseCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Ok => write!(f, "OK"),
-            Self::Err => write!(f, "ERR"),
-            Self::Nx => write!(f, "NX"),
-        }
-    }
-}
-
-impl TryFrom<u32> for ResponseCode {
-    type Error = &'static str;
-
-    fn try_from(n: u32) -> Result<Self, Self::Error> {
-        match n {
-            0 => Ok(Self::Ok),
-            1 => Ok(Self::Err),
-            2 => Ok(Self::Nx),
-            _ => Err("invalid response code"),
+            Self::Unknown => write!(f, "UNKNOWN"),
+            Self::TooBig => write!(f, "TOOBIG"),
         }
     }
 }
