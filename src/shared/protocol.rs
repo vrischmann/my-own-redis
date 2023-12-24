@@ -293,7 +293,7 @@ impl<'a> Writer<'a> {
     ///
     /// let mut writer = Writer::new(&mut buf);
     pub fn new(buf: &'a mut [u8]) -> Self {
-        assert!(buf.len() == BUF_LEN);
+        assert_eq!(buf.len(), BUF_LEN);
 
         Self {
             buf,
