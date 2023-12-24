@@ -332,7 +332,7 @@ impl<'a> Writer<'a> {
 
     /// Write a nil to the buffer.
     /// A nil is made of a single part:
-    /// * a u8 reprensenting its data type (the value <b>0</b>)
+    /// * a u8 representing its data type (the value <b>0</b>)
     ///
     /// # Examples
     /// ```
@@ -387,7 +387,7 @@ impl<'a> Writer<'a> {
 
     /// Write a string to the buffer.
     /// A string is made of three parts:
-    /// * a u8 reprensenting its data type (the value <b>2</b>)
+    /// * a u8 representing its data type (the value <b>2</b>)
     /// * a u32 representing its length
     /// * `length` bytes of data
     ///
