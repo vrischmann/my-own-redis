@@ -312,11 +312,11 @@ fn do_send_responses(connection: &mut Connection) -> ConnectionAction {
 }
 
 fn try_flush_buffer(connection: &mut Connection) -> io::Result<bool> {
-    let written = loop {
+    let written = {
         let write_buf = connection.write_buf.readable();
 
         match shared::write(connection.fd, write_buf) {
-            Ok(n) => break n,
+            Ok(n) => n,
             Err(err) => {
                 if err.raw_os_error().unwrap() != libc::EAGAIN {
                     return Err(err);
