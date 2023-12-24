@@ -1,3 +1,5 @@
+#![allow(clippy::comparison_chain)]
+
 use libc::{setsockopt, socket, AF_INET, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_STREAM, SOL_SOCKET};
 use onlyerror::Error;
 use std::fmt;
