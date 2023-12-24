@@ -200,7 +200,7 @@ where
             return Some(value);
         }
 
-        self.map2.as_mut().map(|m| m.remove(key)).flatten()
+        self.map2.as_mut().and_then(|m| m.remove(key))
     }
 
     fn start_resizing(&mut self) {
@@ -230,10 +230,10 @@ where
 
             // If we moved every bucket in map2, remove it
             if self.resizing_pos >= m.data.len() {
-                self.map2.take().map(|value| {
+                if let Some(value) = self.map2.take() {
                     drop(value);
                     self.resizing_pos = 0;
-                });
+                }
             }
         }
     }

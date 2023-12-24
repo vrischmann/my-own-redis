@@ -79,7 +79,7 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
         //
 
         // TODO(vincent): maybe better error handling ?
-        let (_, message) = protocol::parse_message(&read_buf).unwrap();
+        let (_, message) = protocol::parse_message(read_buf).unwrap();
 
         let mut reader = protocol::Reader::new(message);
 

@@ -48,7 +48,7 @@ impl ConnectionBuffer {
 
     pub fn remove_processed(&mut self) {
         let remaining = self.write_head - self.read_head;
-        if remaining <= 0 {
+        if remaining == 0 {
             return;
         }
 

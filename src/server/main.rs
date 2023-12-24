@@ -50,14 +50,14 @@ fn try_fill_buffer(
 
     //
 
-    let read = loop {
+    let read = {
         let buf = connection.read_buf.writable();
         match shared::read(connection.fd, buf) {
             Ok(data) => {
                 if data.is_empty() {
                     return Err(TryFillBufferError::EndOfStream);
                 } else {
-                    break data.len();
+                    data.len()
                 }
             }
             Err(err) => {
@@ -175,12 +175,12 @@ fn do_request(
 
     let (cmd, args) = (request[0], &request[1..]);
 
-    if cmd == b"get" && args.len() >= 1 {
-        do_get(context, &args, &mut writer);
+    if cmd == b"get" && !args.is_empty() {
+        do_get(context, args, &mut writer);
     } else if cmd == b"set" && args.len() >= 2 {
-        do_set(context, &args, &mut writer);
-    } else if cmd == b"del" && args.len() >= 1 {
-        do_del(context, &args, &mut writer);
+        do_set(context, args, &mut writer);
+    } else if cmd == b"del" && !args.is_empty() {
+        do_del(context, args, &mut writer);
     } else {
         writer.push_err(
             ResponseCode::Unknown,
