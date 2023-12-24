@@ -147,13 +147,7 @@ pub fn read_full(fd: i32, buf: &mut [u8]) -> Result<(), ReadFullError> {
     let mut write_buf = buf;
 
     while remaining > 0 {
-        let n = unsafe {
-            libc::read(
-                fd,
-                write_buf as *mut _ as *mut libc::c_void,
-                remaining as usize,
-            )
-        };
+        let n = unsafe { libc::read(fd, write_buf as *mut _ as *mut libc::c_void, remaining) };
         if n == 0 {
             return Err(ReadFullError::EndOfStream);
         } else if n < 0 {
