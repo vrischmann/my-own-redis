@@ -238,7 +238,7 @@ fn do_set(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
     response_writer.push_nil();
 }
 
-fn do_del<'b>(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
+fn do_del(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
     println!("do_del, args: {:?}", args);
 
     // TODO(vincent): avoid cloning ?
