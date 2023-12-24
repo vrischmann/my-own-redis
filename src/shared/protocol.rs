@@ -430,7 +430,7 @@ impl<'a> Writer<'a> {
         assert!(buf.len() >= DATA_TYPE_LEN + RESPONSE_CODE_LEN + STRING_LEN + bytes.len());
 
         buf[0] = DataType::Err as u8;
-        buf[1..5].copy_from_slice(&(code.into()).to_be_bytes());
+        buf[1..5].copy_from_slice(&code.into().to_be_bytes());
         buf[5..9].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
         buf[9..9 + bytes.len()].copy_from_slice(bytes);
 
