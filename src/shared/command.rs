@@ -38,4 +38,4 @@ pub fn is_valid<T: AsRef<[u8]>>(value: T) -> bool {
     KNOWN_COMMANDS.contains(&cmd)
 }
 
-const KNOWN_COMMANDS: &'static [&'static [u8]] = &[b"get", b"set", b"del"];
+const KNOWN_COMMANDS: &[&[u8]] = &[b"get", b"set", b"del"];
