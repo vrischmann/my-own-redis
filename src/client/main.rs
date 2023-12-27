@@ -14,6 +14,43 @@ enum QueryError {
     MessageTooLong(usize),
 }
 
+fn process_response(reader: &mut protocol::Reader) -> Result<(), QueryError> {
+    match reader.read_data_type()? {
+        protocol::DataType::Nil => {
+            println!("nil");
+        }
+        protocol::DataType::Err => {
+            let (response_code, message) = reader.read_err()?;
+
+            println!("response code: {}", response_code);
+            println!("message: {}", String::from_utf8_lossy(message));
+        }
+        protocol::DataType::Str => {
+            let body = reader.read_string()?;
+
+            println!(
+                "server says: {} (len={})",
+                String::from_utf8_lossy(body),
+                body.len(),
+            );
+        }
+        protocol::DataType::Int => {
+            let n = reader.read_int()?;
+
+            println!("server says: {}", n);
+        }
+        protocol::DataType::Arr => {
+            let n = reader.read_arr_length()?;
+
+            for _ in 0..n {
+                process_response(reader)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> {
     // Sanity checks
 
@@ -83,32 +120,7 @@ fn execute_commands(fd: i32, commands: &[Vec<&[u8]>]) -> Result<(), QueryError> 
 
         let mut reader = protocol::Reader::new(message);
 
-        match reader.read_data_type()? {
-            protocol::DataType::Nil => {
-                println!("nil");
-            }
-            protocol::DataType::Err => {
-                let (response_code, message) = reader.read_err()?;
-
-                println!("response code: {}", response_code);
-                println!("message: {}", String::from_utf8_lossy(message));
-            }
-            protocol::DataType::Str => {
-                let body = reader.read_string()?;
-
-                println!(
-                    "server says: {} (len={})",
-                    String::from_utf8_lossy(body),
-                    body.len(),
-                );
-            }
-            protocol::DataType::Int => {
-                todo!();
-            }
-            protocol::DataType::Arr => {
-                todo!();
-            }
-        }
+        process_response(&mut reader)?;
     }
 
     let read_elapsed = std::time::Instant::now() - read_start;

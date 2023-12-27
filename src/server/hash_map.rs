@@ -147,6 +147,92 @@ pub struct SuperHashMap<K, V> {
     resizing_pos: usize,
 }
 
+pub struct KeyIter<'a, K, V> {
+    data: &'a SuperHashMap<K, V>,
+
+    current: (usize, usize, usize),
+}
+
+impl<'a, K, V> KeyIter<'a, K, V> {
+    pub fn len(&self) -> usize {
+        let m1_len = self.data.map1.len();
+        let m2_len = self.data.map2.as_ref().map(|m| m.len()).unwrap_or_default();
+
+        m1_len + m2_len
+    }
+
+    fn next_key_from_bucket(bucket: &'a [Entry<K, V>], pos: &mut usize) -> Option<&'a K> {
+        if *pos >= bucket.len() {
+            None
+        } else {
+            let result = &bucket[*pos];
+            *pos += 1;
+
+            Some(&result.key)
+        }
+    }
+
+    fn next_key_from_hashmap(
+        m: Option<&'a HashMap<K, V>>,
+        bucket_pos: &mut usize,
+        pos: &mut usize,
+    ) -> Option<&'a K> {
+        match m {
+            Some(m) => loop {
+                let bucket = &m.data[*bucket_pos];
+
+                match Self::next_key_from_bucket(bucket, pos) {
+                    Some(key) => return Some(key),
+                    None => {
+                        *bucket_pos += 1;
+                        *pos = 0;
+
+                        if *bucket_pos >= m.data.len() {
+                            return None;
+                        }
+                        continue;
+                    }
+                }
+            },
+            None => None,
+        }
+    }
+}
+
+impl<'a, K, V> Iterator for KeyIter<'a, K, V> {
+    type Item = &'a K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current.0 == 0 {
+            let result = Self::next_key_from_hashmap(
+                Some(&self.data.map1),
+                &mut self.current.1,
+                &mut self.current.2,
+            );
+            match result {
+                Some(key) => Some(key),
+                None => {
+                    self.current.0 = 1;
+                    self.current.1 = 0;
+                    self.current.2 = 0;
+
+                    Self::next_key_from_hashmap(
+                        self.data.map2.as_ref(),
+                        &mut self.current.1,
+                        &mut self.current.2,
+                    )
+                }
+            }
+        } else {
+            Self::next_key_from_hashmap(
+                self.data.map2.as_ref(),
+                &mut self.current.1,
+                &mut self.current.2,
+            )
+        }
+    }
+}
+
 impl<K, V> SuperHashMap<K, V>
 where
     K: Hash + Eq,
@@ -156,6 +242,13 @@ where
             map1: HashMap::new(capacity),
             map2: None,
             resizing_pos: 0,
+        }
+    }
+
+    pub fn key_iter(&self) -> KeyIter<K, V> {
+        KeyIter {
+            data: self,
+            current: (0, 0, 0),
         }
     }
 
@@ -304,5 +397,41 @@ mod tests {
         assert_eq!(map.remove("foobar"), None);
 
         dump_superhashmap(&map);
+    }
+
+    #[test]
+    fn super_hashmap_key_iter() {
+        let mut map = SuperHashMap::new(1);
+
+        map.insert("foobar", "barbaz");
+        map.insert("hello", "world");
+
+        let key_iter = map.key_iter();
+        assert_eq!(2, key_iter.len());
+
+        for key in map.key_iter() {
+            println!("key: {}", key);
+        }
+
+        let keys: Vec<_> = key_iter.collect();
+        assert_eq!(2, keys.len());
+    }
+
+    #[test]
+    fn super_hashmap_multiple_buckets_key_iter() {
+        let mut map = SuperHashMap::new(4);
+
+        map.insert("foobar", "barbaz");
+        map.insert("hello", "world");
+
+        let key_iter = map.key_iter();
+        assert_eq!(2, key_iter.len());
+
+        for key in map.key_iter() {
+            println!("key: {}", key);
+        }
+
+        let keys: Vec<_> = key_iter.collect();
+        assert_eq!(2, keys.len());
     }
 }

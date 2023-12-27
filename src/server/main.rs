@@ -181,6 +181,8 @@ fn do_request(
         do_set(context, args, &mut writer);
     } else if cmd == b"del" && !args.is_empty() {
         do_del(context, args, &mut writer);
+    } else if cmd == b"keys" {
+        do_keys(context, args, &mut writer);
     } else {
         writer.push_err(
             ResponseCode::Unknown,
@@ -257,6 +259,18 @@ fn do_del(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol:
         Some(_) => {
             response_writer.push_int(1);
         }
+    }
+}
+
+fn do_keys(context: &mut Context, args: &[&[u8]], response_writer: &mut protocol::Writer) {
+    println!("do_keys, args: {:?}", args);
+
+    let key_iter = context.data.key_iter();
+
+    response_writer.push_arr(key_iter.len());
+
+    for key in context.data.key_iter() {
+        response_writer.push_string(key);
     }
 }
 

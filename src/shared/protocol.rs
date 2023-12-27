@@ -204,6 +204,12 @@ impl<'a> Reader<'a> {
 
         Ok((response_code, result))
     }
+
+    // TODO(vincent): can we do better ?
+    pub fn read_arr_length(&mut self) -> Result<usize> {
+        let n: u32 = self.read_int_()?;
+        Ok(n as usize)
+    }
 }
 
 /// Wraps a buffer and provides methods to serialize data to the buffer.
@@ -225,15 +231,15 @@ impl<'a> Reader<'a> {
 ///
 /// assert_eq!(
 ///     &[
-///         0x00, 0x00, 0x00, 0x1C,        // message length in bytes
-///         0x00, 0x00, 0x00, 0x00,
-///         0x00, 0x00, 0x00, 0x02,        // number of strings
-///         0x02,                          // string data type
-///         0x00, 0x00, 0x00, 0x05,        // first string length in bytes
-///         b'h', b'e', b'l', b'l', b'o',  // first string data
-///         0x02,                          // string data type
-///         0x00, 0x00, 0x00, 0x05,        // second string length in bytes
-///         b'h', b'a', b'l', b'l', b'o',  // second string data
+///         0x00, 0x00, 0x00, 0x1D, // message length in bytes
+///         0x03, // data type Int
+///         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // number of strings
+///         0x02, // data type Str
+///         0x00, 0x00, 0x00, 0x05, // first string length in bytes
+///         b'h', b'e', b'l', b'l', b'o', // first string data
+///         0x02, // data type Str
+///         0x00, 0x00, 0x00, 0x05,// second string length in bytes
+///         b'h', b'a', b'l', b'l', b'o', // second string data
 ///     ],
 ///     &buf[0..written],
 /// );
@@ -292,16 +298,19 @@ impl<'a> Writer<'a> {
     /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
     ///
     /// let mut writer = Writer::new(&mut buf);
-    /// writer.push_int(8);
-    /// writer.finish();
+    /// let written = {
+    ///     writer.push_int(8);
+    ///     writer.finish();
+    ///     writer.written()
+    /// };
     ///
     /// assert_eq!(
     ///     &[
-    ///         0x00, 0x00, 0x00, 0x08, // message length in bytes
-    ///         0x00, 0x00, 0x00, 0x00,
-    ///         0x00, 0x00, 0x00, 0x08, // u64
+    ///         0x00, 0x00, 0x00, 0x09, // message length in bytes
+    ///         0x03, // data type Int
+    ///         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, // u64 data
     ///     ],
-    ///     &buf[0..12],
+    ///     &buf[0..written],
     /// );
     /// ```
     pub fn finish(&mut self) {
@@ -322,15 +331,18 @@ impl<'a> Writer<'a> {
     /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
     ///
     /// let mut writer = Writer::new(&mut buf);
-    /// writer.push_nil();
-    /// writer.finish();
+    /// let written = {
+    ///     writer.push_nil();
+    ///     writer.finish();
+    ///     writer.written()
+    /// };
     ///
     /// assert_eq!(
     ///     &[
     ///         0x00, 0x00, 0x00, 0x01, // message length in bytes
-    ///         0x00,                   // Nil data type
+    ///         0x00,                   // data type Nil
     ///     ],
-    ///     &buf[0..5],
+    ///     &buf[0..written],
     /// );
     /// ```
     pub fn push_nil(&mut self) {
@@ -346,23 +358,28 @@ impl<'a> Writer<'a> {
     /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
     ///
     /// let mut writer = Writer::new(&mut buf);
-    /// writer.push_int(20);
-    /// writer.finish();
+    /// let written = {
+    ///     writer.push_int(20);
+    ///     writer.finish();
+    ///     writer.written()
+    /// };
     ///
     /// assert_eq!(
     ///     &[
-    ///         0x00, 0x00, 0x00, 0x08, // message length in bytes
-    ///         0x00, 0x00, 0x00, 0x00,
-    ///         0x00, 0x00, 0x00, 0x14, // u64
+    ///         0x00, 0x00, 0x00, 0x09, // message length in bytes
+    ///         0x03, // data type Int
+    ///         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, // u64 data
     ///     ],
-    ///     &buf[0..12],
+    ///     &buf[0..written],
     /// );
     /// ```
     pub fn push_int(&mut self, value: usize) {
-        let buf = &mut self.buf[self.pos..self.pos + DATA_TYPE_LEN + INTEGER_LEN];
+        let buf = &mut self.buf[self.pos..];
+
+        assert!(buf.len() > DATA_TYPE_LEN + INTEGER_LEN);
 
         buf[0] = DataType::Int as u8;
-        buf[1..].copy_from_slice(&(value as u64).to_be_bytes());
+        buf[1..9].copy_from_slice(&(value as u64).to_be_bytes());
 
         self.pos += DATA_TYPE_LEN + INTEGER_LEN
     }
@@ -379,8 +396,11 @@ impl<'a> Writer<'a> {
     /// # let mut buf: [u8; BUF_LEN] = [0; BUF_LEN];
     ///
     /// let mut writer = Writer::new(&mut buf);
-    /// writer.push_string("foobar");
-    /// writer.finish();
+    /// let written = {
+    ///     writer.push_string("foobar");
+    ///     writer.finish();
+    ///     writer.written()
+    /// };
     ///
     /// assert_eq!(
     ///     &[
@@ -389,7 +409,7 @@ impl<'a> Writer<'a> {
     ///         0x00, 0x00, 0x00, 0x06,             // string length
     ///         b'f', b'o', b'o', b'b', b'a', b'r', // string data
     ///     ],
-    ///     &buf[0..15],
+    ///     &buf[0..written],
     /// );
     /// ```
     pub fn push_string<T: AsRef<[u8]>>(&mut self, value: T) {
@@ -401,8 +421,6 @@ impl<'a> Writer<'a> {
         buf[0] = DataType::Str as u8;
         buf[1..5].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
         buf[5..5 + bytes.len()].copy_from_slice(bytes);
-
-        println!("push buf: {:?}", &buf[0..5 + bytes.len()]);
 
         self.pos += DATA_TYPE_LEN + STRING_LEN + bytes.len()
     }
@@ -419,6 +437,20 @@ impl<'a> Writer<'a> {
         buf[9..9 + bytes.len()].copy_from_slice(bytes);
 
         self.pos += DATA_TYPE_LEN + RESPONSE_CODE_LEN + STRING_LEN + bytes.len();
+    }
+
+    // TODO(vincent): can we do better ?
+    pub fn push_arr(&mut self, length: usize) {
+        let buf = &mut self.buf[self.pos..];
+
+        const N: usize = mem::size_of::<u32>();
+
+        assert!(buf.len() > DATA_TYPE_LEN + N);
+
+        buf[0] = DataType::Arr as u8;
+        buf[1..1 + N].copy_from_slice(&(length as u32).to_be_bytes());
+
+        self.pos += DATA_TYPE_LEN + N;
     }
 
     /// Return the number of bytes written into the buffer

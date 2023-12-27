@@ -18,7 +18,7 @@ pub fn parse<'a>(body: &'a [u8]) -> Result<ParsedCommand<'a>, ParseCommandError>
     // 1. Parse the number of arguments.
 
     let mut n_args = {
-        let _ = reader.read_data_type_expecting(protocol::DataType::Int)?;
+        reader.read_data_type_expecting(protocol::DataType::Int)?;
         reader.read_int()?
     };
 
@@ -27,7 +27,7 @@ pub fn parse<'a>(body: &'a [u8]) -> Result<ParsedCommand<'a>, ParseCommandError>
     let mut args: Vec<&'a [u8]> = Vec::with_capacity(n_args as usize);
     while n_args > 0 {
         let arg = {
-            let _ = reader.read_data_type_expecting(protocol::DataType::Str)?;
+            reader.read_data_type_expecting(protocol::DataType::Str)?;
             reader.read_string()?
         };
 
