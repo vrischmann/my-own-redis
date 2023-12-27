@@ -109,6 +109,18 @@ impl<'a> Reader<'a> {
         Ok(result)
     }
 
+    pub fn read_data_type_expecting(&mut self, expected: DataType) -> Result<()> {
+        let data_type = self.read_data_type()?;
+        if data_type != expected {
+            return Err(Error::IncoherentDataType {
+                want: DataType::Str,
+                got: data_type,
+            });
+        }
+
+        Ok(())
+    }
+
     pub fn read_data_type(&mut self) -> Result<DataType> {
         eprintln!(
             "\x1b[34m==> start/read_data_type/body: {:?}\x1b[0m",
@@ -139,14 +151,6 @@ impl<'a> Reader<'a> {
     }
 
     pub fn read_int(&mut self) -> Result<u64> {
-        let data_type = self.read_data_type()?;
-        if data_type != DataType::Int {
-            return Err(Error::IncoherentDataType {
-                want: DataType::Str,
-                got: data_type,
-            });
-        }
-
         const N: usize = mem::size_of::<u64>();
         self.read_int_::<u64, N>()
     }
@@ -157,14 +161,14 @@ impl<'a> Reader<'a> {
             self.clone_remaining()
         );
 
-        let data_type = self.read_data_type()?;
-        if data_type != DataType::Str {
-            return Err(Error::IncoherentDataType {
-                want: DataType::Str,
-                got: data_type,
-            });
-        }
-
+        // let data_type = self.read_data_type()?;
+        // if data_type != DataType::Str {
+        //     return Err(Error::IncoherentDataType {
+        //         want: DataType::Str,
+        //         got: data_type,
+        //     });
+        // }
+        //
         let length: u32 = self.read_int_()?;
 
         let result = &self.buf[self.pos..self.pos + length as usize];
@@ -199,28 +203,6 @@ impl<'a> Reader<'a> {
         );
 
         Ok((response_code, result))
-    }
-
-    pub fn read_data_type_err(&mut self) -> Result<(u32, &[u8])> {
-        eprintln!(
-            "\x1b[34m==> start/read_data_type_err/body: {:?}\x1b[0m",
-            self.clone_remaining()
-        );
-
-        let data_type = self.read_data_type()?;
-        if data_type != DataType::Err {
-            return Err(Error::IncoherentDataType {
-                want: DataType::Str,
-                got: data_type,
-            });
-        }
-
-        eprintln!(
-            "\x1b[34m==> end/read_data_type_err/body: {:?}\x1b[0m",
-            self.clone_remaining()
-        );
-
-        self.read_err()
     }
 }
 
@@ -419,6 +401,8 @@ impl<'a> Writer<'a> {
         buf[0] = DataType::Str as u8;
         buf[1..5].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
         buf[5..5 + bytes.len()].copy_from_slice(bytes);
+
+        println!("push buf: {:?}", &buf[0..5 + bytes.len()]);
 
         self.pos += DATA_TYPE_LEN + STRING_LEN + bytes.len()
     }
